@@ -5,7 +5,6 @@ import ast
 import importlib
 import json
 import pkgutil
-import re
 from typing import Any
 
 import pybabytracker
