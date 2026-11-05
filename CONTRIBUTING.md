@@ -21,8 +21,6 @@ differently. At core submission:
 
 - `documentation` points at the page on home-assistant.io.
 - `issue_tracker` and `version` are removed: core leaves them out.
-- `categories` is added as `["health_wellbeing"]`. The hassfest image CI runs doesn't accept the key
-  yet, so it waits.
 - `requirements` keeps the `pybabytracker` pin, and `loggers` keeps `["pybabytracker"]`.
 - `quality_scale` is added with the highest tier that holds, which is Gold today (`strict-typing`,
   a Platinum rule, is still open). A custom integration's manifest leaves the key out.
