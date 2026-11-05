@@ -219,22 +219,24 @@ def test_exempt_rules_are_ones_the_rule_text_allows() -> None:
 # --- the manifest --------------------------------------------------------------------------------
 
 
-def test_the_manifest_leaves_out_categories_until_the_published_hassfest_accepts_them() -> None:
-    # The hassfest image the CI action runs (ghcr.io/home-assistant/hassfest) still rejects the
-    # key: "not a valid option at 'categories'", seen on pull request 55. Core's dev branch accepts
-    # it, and requires it for a core integration, so CONTRIBUTING.md lists it for core submission.
-    # Add it when the 2026.11 hassfest image ships (the first release cut after core's change).
-    assert "categories" not in _manifest()
+def test_the_manifest_declares_the_health_wellbeing_category() -> None:
+    # hassfest validates `categories` from Home Assistant 2026.11, which the image CI runs now
+    # ships, so the custom integration's manifest carries the key itself.
+    assert _manifest().get("categories") == ["health_wellbeing"]
 
 
-def test_the_category_contributing_names_for_core_submission_is_one_core_lists() -> None:
+def test_every_manifest_category_is_one_core_lists() -> None:
+    categories = _manifest().get("categories", [])
+    assert categories
+    assert set(categories) <= CORE_CATEGORIES
+
+
+def test_contributing_no_longer_lists_categories_as_a_core_submission_change() -> None:
     from .helpers import ROOT
 
     section = (ROOT / "CONTRIBUTING.md").read_text().split("## Core submission", 1)[1]
     section = section.split("\n## ", 1)[0]
-    named = re.search(r"`categories` is added as `\[\"(\w+)\"\]`", section)
-    assert named is not None
-    assert named.group(1) in CORE_CATEGORIES
+    assert "categories" not in section
 
 
 def test_the_manifest_names_the_librarys_loggers() -> None:
@@ -361,7 +363,6 @@ def test_contributing_lists_what_changes_in_the_manifest_at_core_submission() ->
         "documentation",
         "issue_tracker",
         "version",
-        "categories",
         "quality_scale",
         "loggers",
     ):
