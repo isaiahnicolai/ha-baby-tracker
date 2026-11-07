@@ -126,7 +126,7 @@ None of these were captured. The keys are the fields of each class in the app, w
 - These types don't follow the column-name rule under [Transaction payload](#transaction-payload). A record names the selection it uses by embedding the whole selection, not its ID, and a measurement is a measure object, not a number and a scale flag. For example, a `Medication` carries `medicationSelection` where the `Medicine` table has `MedID`, and a `Temperature` carries `temperature` where the table has `Temp` and `IsEnglishScale`. [ha-baby-tracker#124](https://github.com/wtadler/ha-baby-tracker/issues/124) lists the gaps this left in the library.
 - `NursingSession`'s `leftTimestamps` and `rightTimestamps` are lists of `{"startItem", "time"}`, where `startItem` is a boolean. They appear to mark when each side started and stopped. The app saves a stopped nursing timer through a `NursingSession` (app: `BTDatabaseImple.saveStopedNursingSessionWithSync`), which fits Android timer sessions arriving as `NursingSession` ([ha-baby-tracker#121](https://github.com/wtadler/ha-baby-tracker/issues/121)).
 - **The Android app reads these `BCObjectType`s and no others:** `Baby`, `Diaper`, `Nursing`, `NursingSession`, `Formula`, `Pumped`, `Pump`, `Sleep`, `Medication`, `Temperature`, `Growth`, `OtherFeed`, `OtherActivity`, `Milestone`, `Vaccine`, `Bath`, `Joy`, `Journal`, `Picture`, `ConflictRecord`, the five synced selection types under [Selections](#selections), and the base classes `Activity`, `BabyActivity`, `Feed`, `Bottle`, and `EditableSelection` (app: `GsonUtils`). A transaction of any other type, such as `Medicine`, fails to decode there.
-- A picture's file on the server is `fileName` plus `.jpg`, or `.mp4` for a video. Its thumbnail is `fileName` plus `__thumbnail.jpg` (app: `Picture`, `DefaultValues.ThumbnailPost`).
+- A picture's file on the server is `fileName` plus `.jpg`, or `.mp4` for a video. Its thumbnail is `fileName` plus `__thumbnail.jpg` (app: `Picture`, `DefaultValues.ThumbnailPost`). Both were downloaded for a photo an Android phone attached to a milestone (seen 2026-11-07). The "thumbnail" was the larger file there, so don't assume it's small.
 
 ### Measures
 
@@ -241,7 +241,7 @@ The Android app calls these beyond the ones above (app: `SyncImple`). None were 
 | GET | `/account/seed` | The group's seed: a zip holding its `EasyLog.db` (app: `URLUtility.iOSDatabaseName`). `200`. A joining device replaces its database with it. |
 | POST | `/account/clonedata` | A joining device's old data, as multipart field `clonedata`. `201`. Sent only when the device couldn't back it up to a cloud service. |
 | POST | `/account/picture` | Upload a picture file, as multipart field `picture`. `201`. |
-| GET | `/account/picture/{file name}` | Download a picture file. `200`, or `404` when the server doesn't have it. |
+| GET | `/account/picture/{file name}` | Download a picture file. `200` with the file. For a file it doesn't have, the live service answered `400` (seen 2026-11-07 for a photo's `.mp4` name and for a name with no extension), so treat `400` and `404` both as no file. |
 | POST | `/device_token` | The device's push notification token. `200` or `201`. |
 | POST | `/account/forgot_password` | Ask for a password reset email. `200`. |
 | POST | `/staging_account` | Start creating a group, with the email and password. `200`. |
