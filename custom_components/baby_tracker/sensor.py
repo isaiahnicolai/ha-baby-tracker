@@ -31,13 +31,13 @@ from homeassistant.util import dt as dt_util  # Core PR 19
 from homeassistant.util.unit_conversion import VolumeConverter  # Core PR 7
 from pybabytracker import (
     DayTotals,  # Core PR 7
-    Diaper,
-    Formula,
-    Nursing,
-    Pump,
-    Pumped,
+    Diaper,  # Core PR 4
+    Formula,  # Core PR 4
+    Nursing,  # Core PR 4
+    Pump,  # Core PR 5
+    Pumped,  # Core PR 4
     Record,
-    Sleep,
+    Sleep,  # Core PR 4
 )
 from pybabytracker.timers import LEFT, RIGHT  # Core PR 19
 

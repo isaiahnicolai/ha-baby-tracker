@@ -3,7 +3,7 @@ value is set. The pump cases belong to PR 5."""
 
 from typing import Any
 
-import pytest
+import pytest  # HACS-only
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry

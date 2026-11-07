@@ -31,13 +31,13 @@ from .factories import (
     DEVICE_A,
     DEVICE_B,
     OP_DELETE,
-    OP_UPDATE,
+    OP_UPDATE,  # HACS-only
     baby_payload,
     volume,
 )
 from .fake_server import FakeServer
 from .helpers import (
-    LOCAL_NOW,
+    LOCAL_NOW,  # HACS-only
     MIDNIGHT,
     TODAY,
     baby_state,
