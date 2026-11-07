@@ -398,3 +398,38 @@ def test_the_page_says_late_babies_need_a_reload() -> None:
 def test_the_page_capitalizes_home_assistant_core() -> None:
     # The docs repository's textlint terminology rule rejects "Home Assistant core".
     assert "Home Assistant core" not in _page_text()
+
+
+def _automations() -> list[dict[str, Any]]:
+    _, body = _split()
+    blocks = re.findall(r"\{% example %\}\n(.*?)\{% endexample %\}", body, re.DOTALL)
+    return [
+        yaml.safe_load(
+            "\n".join(line[2:] for line in b.partition("automation: |\n")[2].splitlines())
+        )
+        for b in blocks
+    ]
+
+
+def test_the_feed_reminder_counts_from_the_recorded_feed_time() -> None:
+    # A state trigger with `for` counts from when Home Assistant sees the change, so a feed
+    # logged late reminds late, a restart or reload resets the wait, and four hours of
+    # unknown or unavailable would fire it. A time trigger on the timestamp has none of that.
+    feed = next(a for a in _automations() if "feed" in a["alias"])
+    (trigger,) = feed["triggers"]
+    assert trigger["trigger"] == "time"
+    assert trigger["at"] == {"entity_id": "sensor.homer_last_feed", "offset": "04:00:00"}
+
+
+def test_the_ui_steps_use_the_editors_labels() -> None:
+    # The state trigger's editor offers "Is not" under From and To; there are no
+    # "Not from" or "Not to" fields.
+    _, body = _split()
+    assert "**Not from**" not in body
+    assert "**Not to**" not in body
+
+
+def test_problems_are_reported_to_the_core_issue_tracker() -> None:
+    _, body = _split()
+    assert "github.com/wtadler/ha-baby-tracker" not in body
+    assert "https://github.com/home-assistant/core/issues" in body
