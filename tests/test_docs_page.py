@@ -393,3 +393,8 @@ def test_the_page_has_a_use_cases_section_grounded_in_the_three_sensors() -> Non
 def test_the_page_says_late_babies_need_a_reload() -> None:
     _, body = _split()
     assert "reload the integration or restart Home Assistant" in body
+
+
+def test_the_page_capitalizes_home_assistant_core() -> None:
+    # The docs repository's textlint terminology rule rejects "Home Assistant core".
+    assert "Home Assistant core" not in _page_text()
