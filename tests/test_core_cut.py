@@ -528,24 +528,29 @@ def _cut_coordinator(core_cut: ModuleType, core: Path, number: int) -> str:
     return (core / COMPONENT / "coordinator.py").read_text()
 
 
-def test_pr1_fails_setup_with_a_config_entry_error_on_a_rejected_password(
-    core_cut: ModuleType, core: Path
-) -> None:
-    """PR 1 has no reauthentication step, so a reauth flow could never be completed."""
-    source = _cut_coordinator(core_cut, core, 1)
-    assert "raise ConfigEntryError(" in source
-    assert "ConfigEntryAuthFailed" not in source
-    assert 'translation_key="auth_failed"' in source
-
-
-@pytest.mark.parametrize("number", range(2, 23))
-def test_pr2_onward_raises_config_entry_auth_failed_on_a_rejected_password(
+@pytest.mark.parametrize("number", range(1, 23))
+def test_every_cut_raises_config_entry_auth_failed_on_a_rejected_password(
     core_cut: ModuleType, core: Path, number: int
 ) -> None:
+    # Core starts a reauth flow only when the integration has one, so PR 1, which has none,
+    # still gets the authentication path: setup fails, and a loaded entry stops polling
+    # instead of sending the rejected password at every interval.
     source = _cut_coordinator(core_cut, core, number)
     assert "raise ConfigEntryAuthFailed(" in source
     assert "ConfigEntryError" not in source
     assert 'translation_key="auth_failed"' in source
+
+
+def test_reconfiguration_is_exempt_only_once_reauthentication_exists() -> None:
+    # The rule exempts credentials-only flows when the reauthentication flow handles the
+    # credentials, and that flow arrives in PR 2.
+    def rule(number: int) -> Any:
+        scale = yaml.safe_load((CORE_PREP / "quality_scale" / f"pr{number:02}.yaml").read_text())
+        return scale["rules"]["reconfiguration-flow"]
+
+    assert rule(1) == "todo"
+    assert rule(2)["status"] == "exempt"
+    assert "reauthentication" in rule(2)["comment"]
 
 
 def test_pr2_brings_the_reauth_tests_with_it(core_cut: ModuleType, core: Path) -> None:
