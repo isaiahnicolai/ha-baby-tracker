@@ -30,6 +30,8 @@ from homeassistant.helpers.event import async_track_time_interval  # Core PR 19
 from homeassistant.util import dt as dt_util  # Core PR 19
 from homeassistant.util.unit_conversion import VolumeConverter  # Core PR 7
 from pybabytracker import (
+    SIDE_LEFT,  # Core PR 4
+    SIDE_RIGHT,  # Core PR 4
     DayTotals,  # Core PR 7
     Diaper,  # Core PR 4
     Formula,  # Core PR 4
@@ -38,6 +40,7 @@ from pybabytracker import (
     Pumped,  # Core PR 4
     Record,
     Sleep,  # Core PR 4
+    numeric_code,  # Core PR 4
 )
 from pybabytracker.timers import LEFT, RIGHT  # Core PR 19
 
@@ -51,8 +54,8 @@ from .helpers import volume_parts  # Core PR 4
 PARALLEL_UPDATES = 0
 
 DIAPER_TYPES = {0: "wet", 1: "dirty", 2: "mixed"}  # Core PR 4
-FEED_KINDS = {"Nursing": "nursing", "Formula": "formula", "Pumped": "pumped"}  # Core PR 4
-SIDES = {0: "left", 1: "right"}  # Core PR 4
+FEED_KINDS = ((Nursing, "nursing"), (Formula, "formula"), (Pumped, "pumped"))  # Core PR 4
+SIDES = {SIDE_LEFT: "left", SIDE_RIGHT: "right"}  # Core PR 4
 
 
 # Core PR 4
@@ -65,8 +68,10 @@ def _note(record: Record | None) -> str | None:
 # Core PR 4
 def _label(labels: dict[int, str], code: object) -> str | None:
     """Return the label for a record's numeric code, or None when it has no known code."""
-    # The payload is unvalidated at runtime, so a list or dict can arrive where an int is typed.
-    return labels.get(code) if isinstance(code, int) else None
+    # iOS sends a code as an int and Android as a digit string. The payload is unvalidated at
+    # runtime, so anything else can arrive too, and numeric_code reads that as no code.
+    number = numeric_code(code)
+    return labels.get(number) if number is not None else None
 
 
 # Core PR 4
@@ -77,7 +82,8 @@ def _diaper_attributes(record: Record | None) -> dict[str, Any]:
 
 # Core PR 4
 def _feed_attributes(record: Record | None) -> dict[str, Any]:
-    kind = FEED_KINDS.get(record.record_type) if record is not None else None
+    # A NursingSession is a Nursing, so it reads as "nursing" here.
+    kind = next((name for feed, name in FEED_KINDS if isinstance(record, feed)), None)
     left = right = both = finish_side = None
     if isinstance(record, Nursing):
         left, right, both = record.left_duration, record.right_duration, record.both_duration

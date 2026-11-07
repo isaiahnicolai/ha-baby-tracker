@@ -8,6 +8,7 @@ from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
+from pybabytracker import SIDE_RIGHT
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.baby_tracker.const import (
@@ -62,7 +63,7 @@ async def test_a_nursing_timer_survives_a_restart(
     await nurse(hass, freezer, (10, "right"))  # the time across the restart counts
 
     [record] = nursing_posts(server)
-    assert (record.left_duration, record.right_duration, record.finish_side) == (4, 6, 1)
+    assert (record.left_duration, record.right_duration, record.finish_side) == (4, 6, SIDE_RIGHT)
 
 
 async def test_a_corrupt_saved_nursing_timer_is_ignored(

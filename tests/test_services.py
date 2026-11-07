@@ -14,6 +14,8 @@ from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from pybabytracker import (
     OP_ADD,
+    SIDE_LEFT,
+    SIDE_RIGHT,
     BabyTrackerConnectionError,
     SyncEngine,
 )
@@ -92,7 +94,7 @@ VALID: dict[str, tuple[dict[str, Any], str, dict[str, Any]]] = {
             "time": "2026-10-26T16:55:15+00:00",
         },
         "C3 pump add",
-        {},
+        {"finishSide": SIDE_LEFT},  # the capture predates the library numbering sides 1 and 2
     ),
     "log_nursing": (
         {
@@ -102,7 +104,8 @@ VALID: dict[str, tuple[dict[str, Any], str, dict[str, Any]]] = {
             "end_time": "2026-10-26T16:57:52+00:00",
         },
         "C4 nursing add",
-        {},  # the end time minus its two minutes is the capture's start
+        # The end time minus its two minutes is the capture's start.
+        {"finishSide": SIDE_RIGHT},
     ),
     "log_sleep": (
         {"start": "2026-10-26T16:57:39+00:00", "end": "2026-10-26T16:58:48+00:00"},
