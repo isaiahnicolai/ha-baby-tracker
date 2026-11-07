@@ -2,6 +2,8 @@
 
 Captured 2026-10-26 from app build 294 (iOS) with mitmproxy. No certificate pinning.
 
+Notes tagged **(app: …)** come from the decompiled Android app, version 4.46 (build 144), and name the class, enum, or field that defines them. They weren't captured on the wire. Notes marked **unconfirmed in the app** rest on records seen on a real account and haven't been matched to the app's code.
+
 ## Server
 
 - Base URL: `https://prodapp.babytrackers.com`
@@ -21,6 +23,14 @@ Captured 2026-10-26 from app build 294 (iOS) with mitmproxy. No certificate pinn
 
 Without a session, `GET /account/device` returns `401 Unauthorized`.
 
+How the Android app reads the `POST /session` response (app: `SyncImple`, `BTErrorCode`):
+
+- `200` is success, with the `AccountID` in the body. When joining, an `AccountID` of 0 counts as a failure.
+- `401` or `400` is a wrong email or password (`BTErrorSyncUnauthorized`).
+- `307` means the password was changed on another device (`BTerrorSyncChangePassword`).
+- When any other call returns `401`, the app signs in again with the saved email and password and retries. If that sign-in returns `401` or `307`, the app turns sync off.
+- The Android app sends `DeviceOSInfo` as `<model> OS <Android SDK level>` (app: `Device_Info`) and the same `AppInfo` as iOS, `AppType` 0 and `AccountType` 0 (app: `App_Info`).
+
 ## Sync model
 
 - Each device has its own log of transactions. `SyncID` counts up within each device's log: the sender uses its own last ID + 1.
@@ -35,6 +45,17 @@ Without a session, `GET /account/device` returns `401 Unauthorized`.
 - A full probe of 5 devices (about 4,300 transactions) took about 4 seconds.
 - **A device joins by posting, with no confirmation step** (2026-10-26, test account, `--write-test-diaper`). The new dev device was absent from `/account/device` until its first `POST /account/transaction` (SyncID 1, a diaper add), then listed at once with `LastSyncID` 1, then 2 after a delete. Reading an unlisted device's log returns `[]`. The posted transaction came back byte-identical in the device's own log.
 
+### How the Android app pulls and merges
+
+From the app's sync and merge code (app: `SyncImple`, `BTDatabaseImple`):
+
+- **Progress per device.** The app keeps one row per other device, `DeviceSyncInfo(DeviceUUID, LastSyncID)`: the highest `SyncID` it has merged from that device. It skips its own device in `/account/device` and reads a device it has never seen from 0.
+- **Paging.** It keeps reading a device's log while a read returns 500 or more items, each time from the last `SyncID` returned. That matches the probe findings above. Items at or below the stored `SyncID` are skipped.
+- **Add and update.** For records (not babies or selections), an add for a record the app already has is applied as an update. An update for a record it doesn't have is applied as an add. An update replaces the stored record only when the stored `timestamp` is older; otherwise it's ignored. So the newest `timestamp` wins.
+- **Deletes are repeated.** After the app merges a delete from another device, it posts the same delete under its own device ID. This answers one of the open questions below, at least for Android phones.
+- **Joining.** To join, the app first drops its device ID, so every join gets a new one (app: `Configuration.resetDeviceID`). It then signs in, downloads the group's seed database (`GET /account/seed`) and replaces its own database with it, and downloads the pictures. Before downloading, it uploads its old data to `/account/clonedata` if it couldn't back it up to a cloud service first. See [Endpoints in the Android app](#endpoints-in-the-android-app).
+- **No echoes while joining.** Until the first full pull after a join finishes, merges post nothing back: no repeated deletes, relives, or conflict records (app: `SyncImple.isInJoinGroupProcess`).
+
 ## OPCodes
 
 - `0`: add.
@@ -43,12 +64,17 @@ Without a session, `GET /account/device` returns `401 Unauthorized`.
 
 All three were observed in captures on 2026-10-26.
 
+The app has two more (app: `TransactionLogOpCode`). Neither was captured, and both apply only to babies and [selections](#selections):
+
+- `3`: relive. A device that refuses a delete because the baby or selection still has records posts this, carrying its own copy, so the other devices restore it.
+- `4`: conflict. The payload is a `ConflictRecord` with `winner` and `loser`, each a full baby or selection. Receivers move the loser's records to the winner. See [Selections](#selections) for when it's sent.
+
 ## Timers
 
 Captured on the test account on 2026-10-26, with the sync screen opened while each timer was running.
 
 - **Sleep timers sync while running.** Starting a sleep posts an **add** right away with `duration` 0 and `time` set to the start. Stopping it posts an **update** to the same `objectID` with the final `duration`. Each later edit, such as adding a note, posts another update. A sleep with `duration` 0 is therefore a sleep in progress.
-- **Nursing timers don't sync while running.** Nothing was posted when the timer started, when it switched from left to right, or while the sync screen was open. When the timer stopped, one **add** arrived with `leftDuration`, `rightDuration`, `finishSide` (the side last nursed, 1 = right), `isDetailed` "true", and `state` 5. That fits the absence of a "last synced" update during nursing. HA can't see a nursing timer running on a phone. It can only keep its own timer and write the finished entry at the stop.
+- **Nursing timers don't sync while running.** Nothing was posted when the timer started, when it switched from left to right, or while the sync screen was open. When the timer stopped, one **add** arrived with `leftDuration`, `rightDuration`, `finishSide` (the side the session started on, 1 = left, per the app's `NursingFinishSide` and its "start side" label; see [ha-baby-tracker#120](https://github.com/wtadler/ha-baby-tracker/issues/120) and [#123](https://github.com/wtadler/ha-baby-tracker/issues/123)), `isDetailed` "true", and `state` 5. That fits the absence of a "last synced" update during nursing. HA can't see a nursing timer running on a phone. It can only keep its own timer and write the finished entry at the stop.
 - **Pump timers (assumed, not captured).** The app's pump timer wasn't captured. Real timed pumps carry equal `leftDuration` and `rightDuration` with `sides` 0, so Home Assistant keeps its own pump timer like the nursing one and writes the finished pump at the stop. A stop with no amount writes the durations and an `amount` of 0 (checked against the app's own database: every timed pump it saved without a volume has amount 0, never a missing value).
 - Durations are whole minutes. About 30 seconds per side was stored as 1.
 
@@ -78,9 +104,153 @@ Fields observed beyond the shared ones (`BCObjectType`, `objectID`, `time`, `tim
 
 Anonymized fixtures for all nine captured transactions are in the library's `tests/fixtures/captured_payloads.json`.
 
+### More types, from the Android app
+
+None of these were captured. The keys are the fields of each class in the app, which it sends as they are (app: `GsonUtils`, `BCObject`). Each record type below except `Pump` also has the shared keys, including `baby` (app: `BabyActivity`). `Baby` and `Picture` are objects embedded in records.
+
+| Type | Keys beyond the shared ones | App class |
+|---|---|---|
+| `Medication` (a dose; stored in the `Medicine` table) | `amount` (a plain number), `medicationSelection` (the medicine, a `MedicationSelection`) | `Medication` |
+| `NursingSession` (Android's nursing timer) | the `Nursing` keys, plus `detailed`, `state`, `pairSessionState`, `leftTimestamps`, `rightTimestamps` | `NursingSession`, `NursingSessionTimestamp` |
+| `Temperature` | `temperature` (a `TemperatureMeasure`) | `Temperature` |
+| `Growth` | `weight` (a `WeightMeasure`), `length` and `head` (each a `LengthMeasure`), `deleted`, `queryIndex` | `Growth` |
+| `OtherFeed` (solids and other foods) | `feedType` (the food, an `OtherFeedSelection`), `desc` (a `FeedDescription`), `amount` (a `VolumeMeasure`), `unit` (free text) | `OtherFeed` |
+| `OtherActivity` | `desc` (the activity, an `OtherActivityDescription`), `duration` | `OtherActivity` |
+| `Milestone` | `milestoneType` (a `MilestoneSelection`), `hasNewType` | `Milestone` |
+| `Vaccine` | `vaccineType` (a `VaccineSelection`) | `Vaccine` |
+| `Bath`, `Joy`, `Journal` | none | `Bath`, `Joy`, `Journal` |
+| `Pump` (one key more than the captured table) | `label`. A pump with `label` "InventoryAdjustment" isn't a pumping session but a change to the milk stash: its `amount` is the new stash minus the old one, so it can be negative. | `Pump`, `InventoryActivity4` |
+| `Baby` (embedded in records) | `name`, `dob`, `dueDay`, `gender` (true = boy, false = girl), `pictureName` | `Baby`, `BabyInfoActivity4` |
+| `Picture` (each entry of `pictureNote`) | `activityID`, `attached`, `deleted`, `fileName`, `mediaType` | `Picture` |
+
+- These types don't follow the column-name rule under [Transaction payload](#transaction-payload). A record names the selection it uses by embedding the whole selection, not its ID, and a measurement is a measure object, not a number and a scale flag. For example, a `Medication` carries `medicationSelection` where the `Medicine` table has `MedID`, and a `Temperature` carries `temperature` where the table has `Temp` and `IsEnglishScale`. [ha-baby-tracker#124](https://github.com/wtadler/ha-baby-tracker/issues/124) lists the gaps this left in the library.
+- `NursingSession`'s `leftTimestamps` and `rightTimestamps` are lists of `{"startItem", "time"}`, where `startItem` is a boolean. They appear to mark when each side started and stopped. The app saves a stopped nursing timer through a `NursingSession` (app: `BTDatabaseImple.saveStopedNursingSessionWithSync`), which fits Android timer sessions arriving as `NursingSession` ([ha-baby-tracker#121](https://github.com/wtadler/ha-baby-tracker/issues/121)).
+- **The Android app reads these `BCObjectType`s and no others:** `Baby`, `Diaper`, `Nursing`, `NursingSession`, `Formula`, `Pumped`, `Pump`, `Sleep`, `Medication`, `Temperature`, `Growth`, `OtherFeed`, `OtherActivity`, `Milestone`, `Vaccine`, `Bath`, `Joy`, `Journal`, `Picture`, `ConflictRecord`, the five synced selection types under [Selections](#selections), and the base classes `Activity`, `BabyActivity`, `Feed`, `Bottle`, and `EditableSelection` (app: `GsonUtils`). A transaction of any other type, such as `Medicine`, fails to decode there.
+- A picture's file on the server is `fileName` plus `.jpg`, or `.mp4` for a video. Its thumbnail is `fileName` plus `__thumbnail.jpg` (app: `Picture`, `DefaultValues.ThumbnailPost`).
+
+### Measures
+
+Every measure has two keys, `englishMeasure` (a boolean) and `value` (a 32-bit float) (app: `Measure`). `englishMeasure` true means the US unit (app: the unit labels in each class):
+
+| Measure | `englishMeasure` true | false |
+|---|---|---|
+| `VolumeMeasure` | oz | mL |
+| `WeightMeasure` | lb (decimal) | kg |
+| `LengthMeasure` | inches | cm |
+| `TemperatureMeasure` | °F | °C |
+
+An `OtherFeed`'s `amount` counts its `unit`, which is free text, so its `englishMeasure` says nothing about that unit.
+
+### Enum values
+
+The app's names and numbers for the codes in these payloads:
+
+| Key | Values | App enum |
+|---|---|---|
+| Diaper `status` | 0 wet, 1 dirty, 2 mixed, 3 dry | `DiaperStatus` |
+| Diaper `amount` | 0 none, 1 light, 2 normal, 3 heavy, 4 overflow, 5 not set | `DiaperAmount` |
+| Nursing `finishSide` | 0 not set, 1 left, 2 right | `NursingFinishSide` |
+| Pump `finishSide` | 0 none, 1 left, 2 right | `PumpFinishSide` |
+| Pump `sides` | 0 both, 1 left, 2 right | `PumpSides` |
+| `state`, `pairSessionState` | 0 start, 1 left running, 2 right running, 3 left paused, 4 right paused, 5 both stopped, 6 end | `NursingSessionState` |
+| Picture `mediaType` | 0 picture, 1 video, 2 audio | `MediaType` |
+
+- **The app shows `finishSide` as the start side.** A nursing record with 1 reads "start side L", and one with 2 "start side R" (app: the `Nursing` summary text). Pumps use the same numbers.
+- **Pump `sides` 0 means both.** That's why every capture has `sides` 0.
+- **Dry diapers.** The app reads a wet diaper (`status` 0) with `amount` 0 (none) as dry (app: `Diaper`). Whether a phone sends a dry diaper that way or as `status` 3 wasn't checked, so read both as dry.
+- The iOS capture's nursing `state` 5 is "both stopped" in the app's numbering.
+
+### Android and iOS differences
+
+The iOS side is from the captures above. The Android side is from the app's field types.
+
+- **Booleans.** Android sends JSON booleans: `newFlage`, `pictureLoaded`, `gender`, `englishMeasure`, and selection flags such as `prescription` and `bottle` (app: the field types in `BCObject`, `Activity`, `Baby`, `Measure`, and the selection classes). In the iOS captures, `newFlage`, `pictureLoaded`, `gender`, and `englishMeasure` are the strings `"true"` and `"false"`.
+- **Nested objects.** Android labels only the top-level record with `BCObjectType`, and a `ConflictRecord`'s `winner` and `loser`. The embedded baby, selections, measures, and pictures carry no `BCObjectType` (app: `GsonUtils` registers its type adapter for `BCObject` alone). iOS labels the nested ones too, such as `"BCObjectType": "VolumeMeasure"`.
+- **Object IDs.** Android makes new IDs with Java's random UUID, which is lowercase (app: `BCObject`). iOS IDs are uppercase.
+- **Fewer keys on Android.** Android's `Diaper` has only `status` and `amount`, with no `peeColor`, `pooColor`, `texture`, or `flag`. Its `Nursing` has only the three durations and `finishSide`. `isDetailed`, `state`, and `pairSessionState` are on iOS's `Nursing` but only on Android's `NursingSession`, where the first is spelled `detailed` (app: `Diaper`, `Nursing`, `NursingSession`).
+- **Dates** are the same on both: `yyyy-MM-dd HH:mm:ss +0000`, in UTC (app: `DateTypeAdapter`).
+
+**Unconfirmed in the app:**
+
+- **How Android writes enum codes.** The app holds the codes above as enums, and the decompiled code shows no custom encoding for them, which would mean constant names such as `NursingFinishSideLeft` on the wire. But an Android phone on a real account sent digit strings such as `"1"` where iOS sends `1` ([ha-baby-tracker#122](https://github.com/wtadler/ha-baby-tracker/issues/122)). The app also reads `OPCode` into an enum the same way (app: `TransactionItem`), so the decompiled code may be missing the encoding. Read an int, a digit string, or the constant name.
+- **The iOS medicine flag.** iOS records on a real account spell `prescription` as `isPresciption` ([ha-baby-tracker#121](https://github.com/wtadler/ha-baby-tracker/issues/121)).
+
+An Android `Medication`, with the shape taken from the app's classes and invented values:
+
+```json
+{
+  "BCObjectType": "Medication",
+  "objectID": "<UUID, lowercase>",
+  "time": "2026-10-25 15:40:49 +0000",
+  "timestamp": "2026-10-25 15:41:02 +0000",
+  "timezone": -18000,
+  "amount": 2.5,
+  "medicationSelection": {
+    "objectID": "<medicine UUID>", "name": "...", "desc": "",
+    "amountPerTime": 2.5, "unit": "ml", "interval": 6, "prescription": false,
+    "newFlage": false, "timestamp": "2026-01-01 00:00:00 +0000"
+  },
+  "note": "", "pictureNote": [],
+  "newFlage": true, "pictureLoaded": true,
+  "baby": {
+    "objectID": "<baby UUID>", "name": "...", "dob": "...", "gender": true,
+    "pictureName": "...", "newFlage": false, "timestamp": "..."
+  }
+}
+```
+
+## Selections
+
+A selection is an entry in one of the app's pick lists: a medicine, a food, a vaccine, a milestone, or a kind of activity. Every selection has `name` and `desc` plus the shared `objectID`, `timestamp`, and `newFlage` (app: `EditableSelection`).
+
+| Selection type | Extra keys | Embedded by | Local table |
+|---|---|---|---|
+| `MedicationSelection` | `amountPerTime`, `interval`, `prescription`, `unit` | `Medication.medicationSelection` | `MedicineSelection` |
+| `OtherFeedSelection` | `bottle` | `OtherFeed.feedType` | `OtherFeedSelection` |
+| `FeedDescription` | none | `OtherFeed.desc` | `FeedDesc` |
+| `OtherActivityDescription` | none | `OtherActivity.desc` | `OtherActivityDesc` |
+| `MilestoneSelection` | `babyID`, `forAge`, `used` | `Milestone.milestoneType` | `MilestoneSelection` |
+| `VaccineSelection` | `forAge` | `Vaccine.vaccineType` | `VaccineSelection` |
+
+(app: the classes named in the table, and `BTSQLiteOpenHelper` for the table names)
+
+- **Selections sync as transactions of their own**, as well as inside the records that use them (app: `BTDatabaseImple.saveEditableSelectionImpleWithSync` and `deleteEditableSelectionImpleWithSync`). `FeedDescription` is the exception on Android: it isn't one of the types the app can read on its own, so it only travels inside an `OtherFeed` (app: `GsonUtils`).
+- **Built-in selections** have `objectID`s starting with `EasyLogSeed` (app: `DefaultValues.DefaultSeedPrefix`, and the seed rows in `BTSQLiteOpenHelper`).
+- **Names are unique within a type.** When a new selection arrives with the name of one the device already has, the older of the two wins. If the device's own copy is older, it rejects the new one and posts a conflict (OPCode 4) naming its copy the winner. Otherwise it keeps the new one and moves its records over to it (app: `BTDatabaseImple` selection merges).
+- **A selection in use can't be deleted.** A device that gets a delete for a selection that still has records refuses it and posts a relive (OPCode 3) of its copy. A device that gets a relive of a selection it has remembers it and ignores the next delete of it (app: `BTDatabaseImple`, the `ReliveList` table).
+- Babies follow the same rules: unique names, conflict records, and relives (app: `BTDatabaseImple` baby merges).
+- The local database has more selection tables than the app syncs: `SleepDesc`, `BathDesc`, `SickDesc`, `DoctorSelection`, `AllergenSourceSelection`, `SleepLocationSelection`, and `OtherActivityLocationSelection` (app: `EditableSelectionType`). The Android app has no sync class for those.
+
+## Account ID and group resets
+
+- The `AccountID` from `POST /session` names the sync group. The Android app stores it when it creates, joins, or resets a group (app: `SyncImple`, `AccountRevision`).
+- Each time the app signs in again after a `401`, it compares the new `AccountID` with the stored one. If they differ, it turns sync off and warns that sign-in failed (app: `SyncImple.checkAccountIDFromResponse`). A different `AccountID` means the email and password now open a different group from the one the device's data came from. A client should stop syncing then, as the app does, and not merge into the new group.
+- Resetting a group (app: `SyncImple.resetGroup`) gives the resetting device a new device ID, posts the email and password to `/account_reset`, uploads that device's database as the new seed and its pictures, and finishes with `PUT /staging_account`. The app stores the `AccountID` from that last response. Whether the server always issues a new `AccountID` on a reset wasn't checked.
+
 ## Other endpoints seen
 
 - `POST /account/trial_start`, with body `{"TrialStartTime": <unix seconds>}`. The app sent this once during the capture, apparently starting a Plus trial. Home Assistant must never call it.
+
+## Endpoints in the Android app
+
+The Android app calls these beyond the ones above (app: `SyncImple`). None were captured. The codes are the ones the app expects. The Android app has no `/account/plus` or `/account/trial_start`.
+
+| Method | Path | Use |
+|---|---|---|
+| DELETE | `/session` | Sign out. `200`. On `401` the app signs in and tries again. |
+| GET | `/account/seed` | The group's seed: a zip holding its `EasyLog.db` (app: `URLUtility.iOSDatabaseName`). `200`. A joining device replaces its database with it. |
+| POST | `/account/clonedata` | A joining device's old data, as multipart field `clonedata`. `201`. Sent only when the device couldn't back it up to a cloud service. |
+| POST | `/account/picture` | Upload a picture file, as multipart field `picture`. `201`. |
+| GET | `/account/picture/{file name}` | Download a picture file. `200`, or `404` when the server doesn't have it. |
+| POST | `/device_token` | The device's push notification token. `200` or `201`. |
+| POST | `/account/forgot_password` | Ask for a password reset email. `200`. |
+| POST | `/staging_account` | Start creating a group, with the email and password. `200`. |
+| POST | `/staging_account/seed` | Upload the new group's database, as multipart field `seed` (`seed.zip`). `201`. |
+| POST | `/staging_account/picture` | Upload the new group's pictures. `201`. |
+| PUT | `/staging_account` | Finish creating or resetting a group. `200`, with the new group's `AccountID`. |
+| POST | `/account_reset` | Start resetting the group, with the email and password. `200`. |
+
+Home Assistant must never call `/account_reset` or the `/staging_account` endpoints. They create or rebuild a group from one device's database.
 
 ## Transaction payload
 
@@ -106,11 +276,15 @@ Anonymized fixtures for all nine captured transactions are in the library's `tes
 ```
 
 - Field names match the columns of the matching `EasyLog.db` table, in lowerCamelCase (`Diaper.Status` becomes `status`).
+  - That holds for the captured types, not for types that use a selection or a measure. See [More types, from the Android app](#more-types-from-the-android-app).
 - `time` is when the event happened and `timestamp` is when the record was last changed. Both are UTC strings.
 - `timezone` is the device zone's **standard** UTC offset in seconds, ignoring daylight saving, year-round (observed 2026-10-26 across about 4,300 real records). Eastern records carry -18000 in both summer and winter, and -21600 appears when the device is in Central time. To match the app, send the standard offset, not the offset in force at the time. pybabytracker's `standard_offset_seconds(tz, at)` computes it. Display isn't affected, since `time` is UTC.
+  - The Android app does the same: it sets `timezone` from the device zone's raw offset, which leaves out daylight saving (app: `Activity`).
 - Diaper `status`: 0 = wet, 1 = dirty, 2 = mixed (from the local data; dry not yet confirmed).
+  - The app's `DiaperStatus` has 3 = dry, and the app also reads a wet diaper with `amount` 0 as dry. See [Enum values](#enum-values).
 - The sending device sets `newFlage` to `"true"` on an add and `"false"` on a delete.
 - The baby record is embedded in every entry.
+  - The baby's `gender` is true for a boy and false for a girl (app: `Baby`, `BabyInfoActivity4`).
 
 ## Local database (`.btcp` clone, `.btbk` backup)
 
@@ -123,4 +297,6 @@ Anonymized fixtures for all nine captured transactions are in the library's `tes
 
 - Is there a limit on how many devices an account can have? Joining takes no confirmation step (see Probe findings).
 - In the capture, the pull from another device returned a delete matching ours (SyncID 1602). Does the server echo deletes, or did that device send its own copy?
+  - The Android app repeats every delete it merges under its own device ID (see [How the Android app pulls and merges](#how-the-android-app-pulls-and-merges)). If that device was an Android phone, it sent its own copy. Whether iOS does the same isn't known.
 - What do the remaining types (growth, medicine, temperature, and so on) look like on the wire? They're read-only for now, and kept raw if their shape surprises the library.
+  - Their keys in the Android app are under [More types, from the Android app](#more-types-from-the-android-app). Their iOS shape is still uncaptured.
