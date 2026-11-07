@@ -17,9 +17,9 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,  # Core PR 7
 )
-from homeassistant.const import (  # Core PR 7
-    UnitOfTime,  # Core PR 19
-    UnitOfVolume,
+from homeassistant.const import (  # Core PR 4
+    UnitOfTime,
+    UnitOfVolume,  # Core PR 7
 )
 from homeassistant.core import (
     HomeAssistant,
@@ -453,6 +453,127 @@ class BabyTrackerNursingTimeSensor(BabyTrackerBabyEntity, SensorEntity):
         return round(seconds / 60, 1)
 
 
+# Core PR 4
+def _minutes(value: object) -> int | None:
+    """Return a duration in whole minutes, or None when the payload has none."""
+    # The payload is unvalidated at runtime, so a string or list can arrive where an int is typed.
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+# Core PR 4
+def _last_nursing(baby: BabyData) -> Nursing | None:
+    return baby.last_nursing if isinstance(baby.last_nursing, Nursing) else None
+
+
+# Core PR 4
+def _nursing_time(baby: BabyData) -> datetime | None:
+    nursing = _last_nursing(baby)
+    return nursing.time if nursing is not None else None
+
+
+# Core PR 4
+def _nursing_minutes(baby: BabyData) -> int | None:
+    nursing = _last_nursing(baby)
+    if nursing is None:
+        return None
+    sides = [
+        _minutes(minutes)
+        for minutes in (nursing.left_duration, nursing.right_duration, nursing.both_duration)
+    ]
+    known = [minutes for minutes in sides if minutes is not None]
+    return sum(known) if known else None
+
+
+# Core PR 4
+def _nursing_left_minutes(baby: BabyData) -> int | None:
+    nursing = _last_nursing(baby)
+    return _minutes(nursing.left_duration) if nursing is not None else None
+
+
+# Core PR 4
+def _nursing_right_minutes(baby: BabyData) -> int | None:
+    nursing = _last_nursing(baby)
+    return _minutes(nursing.right_duration) if nursing is not None else None
+
+
+# Core PR 4
+def _sleep_minutes(baby: BabyData) -> int | None:
+    sleep = baby.sleep
+    # A running sleep's duration of 0 isn't a length yet; the sleep timer sensor covers it.
+    if not isinstance(sleep, Sleep) or sleep.is_running:
+        return None
+    return _minutes(sleep.duration)
+
+
+# Core PR 4
+@dataclass(frozen=True, kw_only=True)
+class BabyTrackerLastDetailSensorDescription(SensorEntityDescription):
+    """One reading of a baby's newest nursing or sleep."""
+
+    value_fn: Callable[[BabyData], datetime | int | None]
+
+
+# Core PR 4
+# The last feed sensor follows the newest feed of any kind, so a bottle after a nursing hides the
+# nursing's minutes: the nursing sensors follow the newest nursing alone. The minutes are their own
+# sensors, not only attributes, so they show on the device page, keep history, and trigger
+# automations without a template.
+LAST_DETAIL_SENSORS: tuple[BabyTrackerLastDetailSensorDescription, ...] = (
+    BabyTrackerLastDetailSensorDescription(
+        key="last_nursing",
+        translation_key="last_nursing",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=_nursing_time,
+    ),
+    BabyTrackerLastDetailSensorDescription(
+        key="last_nursing_duration",
+        translation_key="last_nursing_duration",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        value_fn=_nursing_minutes,
+    ),
+    BabyTrackerLastDetailSensorDescription(
+        key="last_nursing_left_time",
+        translation_key="last_nursing_left_time",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        value_fn=_nursing_left_minutes,
+    ),
+    BabyTrackerLastDetailSensorDescription(
+        key="last_nursing_right_time",
+        translation_key="last_nursing_right_time",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        value_fn=_nursing_right_minutes,
+    ),
+    BabyTrackerLastDetailSensorDescription(
+        key="last_sleep_duration",
+        translation_key="last_sleep_duration",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        value_fn=_sleep_minutes,
+    ),
+)
+
+
+# Core PR 4
+class BabyTrackerLastDetailSensor(BabyTrackerBabyEntity, SensorEntity):
+    """When a baby's newest nursing happened, or the minutes of its newest nursing or sleep.
+
+    A nursing timed on a phone syncs only once it stops, so the nursing sensors show the last
+    finished one. The sleep duration is unknown while the newest sleep still runs.
+    """
+
+    entity_description: BabyTrackerLastDetailSensorDescription
+
+    @property
+    @override
+    def native_value(self) -> datetime | int | None:
+        """Return the reading for the baby, or None when there's nothing to read yet."""
+        baby = self._baby
+        return self.entity_description.value_fn(baby) if baby is not None else None
+
+
 # One row per kind of sensor: its descriptions and the entity class built from each.
 # Core PR 5
 ACCOUNT_SENSORS: tuple[
@@ -469,6 +590,7 @@ BABY_SENSORS: tuple[
     ((SLEEP_TIMER,), BabyTrackerTimerSensor),  # Core PR 8
     ((NURSING_TIMER,), BabyTrackerTimerSensor),  # Core PR 19
     (NURSING_TIME_SENSORS, BabyTrackerNursingTimeSensor),  # Core PR 19
+    (LAST_DETAIL_SENSORS, BabyTrackerLastDetailSensor),  # Core PR 4
 )
 
 

@@ -58,6 +58,16 @@ def _device(hass: HomeAssistant, entry: MockConfigEntry, identifier: str) -> dr.
 KEYS = ("last_diaper", "last_feed", "last_sleep")  # a pump belongs to the account, not a baby
 
 
+# The last nursing and last sleep details (test_sensor_last_nursing_and_sleep.py).
+DETAIL_KEYS = (
+    "last_nursing",
+    "last_nursing_duration",
+    "last_nursing_left_time",
+    "last_nursing_right_time",
+    "last_sleep_duration",
+)
+
+
 # The counts and the asleep sensor are in test_sensor_today.py; each baby also has these four.
 TODAY_KEYS = ("diapers_today", "feeds_today", "bottle_volume_today", "asleep")
 
@@ -65,7 +75,7 @@ TODAY_KEYS = ("diapers_today", "feeds_today", "bottle_volume_today", "asleep")
 TIMER_KEYS = ("sleep_timer", "nursing_timer", "nursing_left_time", "nursing_right_time")
 
 
-PER_BABY = len(KEYS) + len(TODAY_KEYS) + len(TIMER_KEYS)
+PER_BABY = len(KEYS) + len(DETAIL_KEYS) + len(TODAY_KEYS) + len(TIMER_KEYS)
 
 
 # The buttons share each baby's device, so entity counts here look at readings only.

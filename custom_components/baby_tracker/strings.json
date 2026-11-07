@@ -145,6 +145,21 @@
       "nursing_right_time": {
         "name": "Nursing right time"
       },
+      "last_nursing": {
+        "name": "Last nursing"
+      },
+      "last_nursing_duration": {
+        "name": "Last nursing duration"
+      },
+      "last_nursing_left_time": {
+        "name": "Last nursing left time"
+      },
+      "last_nursing_right_time": {
+        "name": "Last nursing right time"
+      },
+      "last_sleep_duration": {
+        "name": "Last sleep duration"
+      },
       "pump_timer": {
         "name": "Pump timer"
       }

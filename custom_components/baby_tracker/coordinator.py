@@ -63,6 +63,9 @@ class BabyData:
     sleep: Record | None = None
     today: DayTotals = DayTotals()  # Core PR 7
     nursing: NursingTimer | None = None  # Core PR 18
+    # Core PR 4
+    # The newest nursing, whatever feed came after it, so its minutes stay visible.
+    last_nursing: Record | None = None
 
     # Core PR 8
     @property
@@ -219,6 +222,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
                 sleep=latest.get("Sleep"),
                 today=self._today(baby_id),  # Core PR 7
                 nursing=self.timers.nursing.get(baby_id),  # Core PR 18
+                last_nursing=latest.get("Nursing"),  # Core PR 4
             )
         return BabyTrackerData(
             babies=babies,
