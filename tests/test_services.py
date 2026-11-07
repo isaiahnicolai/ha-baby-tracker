@@ -15,7 +15,6 @@ from homeassistant.helpers import device_registry as dr
 from pybabytracker import (
     OP_ADD,
     SIDE_LEFT,
-    SIDE_RIGHT,
     BabyTrackerConnectionError,
     SyncEngine,
 )
@@ -94,18 +93,21 @@ VALID: dict[str, tuple[dict[str, Any], str, dict[str, Any]]] = {
             "time": "2026-10-26T16:55:15+00:00",
         },
         "C3 pump add",
-        {"finishSide": SIDE_LEFT},  # the capture predates the library numbering sides 1 and 2
+        # Capture C3 stored 0 (not set) for a two-sided pump, which the service can't write yet
+        # (#123).
+        {"finishSide": SIDE_LEFT},
     ),
     "log_nursing": (
         {
             "left_minutes": 1,
             "right_minutes": 1,
-            "finish_side": "right",
+            "finish_side": "left",
             "end_time": "2026-10-26T16:57:52+00:00",
         },
         "C4 nursing add",
-        # The end time minus its two minutes is the capture's start.
-        {"finishSide": SIDE_RIGHT},
+        # The end time minus its two minutes is the capture's start. Its finishSide 1 is left:
+        # the session started on the left (#123), so the payload matches the capture key for key.
+        {},
     ),
     "log_sleep": (
         {"start": "2026-10-26T16:57:39+00:00", "end": "2026-10-26T16:58:48+00:00"},
