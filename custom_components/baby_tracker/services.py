@@ -8,7 +8,7 @@ import probatio
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import issue_registry as ir  # HACS-only
 from homeassistant.helpers import service
 
 from .bottle import BOTTLE_KINDS, MILLILITERS, OUNCES

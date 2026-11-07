@@ -3,13 +3,18 @@ note)."""
 
 import pytest
 from freezegun.api import FrozenDateTimeFactory
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntryState  # HACS-only
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
 )
 
-from . import BABY_ONE, DIAPER, NOW, tick
+from . import (
+    BABY_ONE,  # HACS-only
+    DIAPER,
+    NOW,
+    tick,
+)
 from .factories import (
     DEVICE_A,
     DEVICE_B,

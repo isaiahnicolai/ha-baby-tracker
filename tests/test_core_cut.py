@@ -4,6 +4,7 @@ import ast
 import importlib.util
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -593,6 +594,34 @@ def test_every_planned_cut_is_valid_python(core_cut: ModuleType, core: Path, num
     core_cut.cut(number, core, ruff=None)
     for path in [*(core / COMPONENT).rglob("*.py"), *(core / TESTS).rglob("*.py")]:
         ast.parse(path.read_text(), filename=str(path))
+
+
+@pytest.mark.parametrize("number", range(1, 23))
+def test_every_planned_cut_leaves_no_unused_imports(
+    core_cut: ModuleType, core: Path, number: int
+) -> None:
+    # Core's ruff fails on an import whose only users wait for a later PR, so each import
+    # needs the marker of its earliest user.
+    core_cut.cut(number, core, ruff=None)
+    ruff = shutil.which("ruff") or str(Path(sys.executable).parent / "ruff")
+    result = subprocess.run(
+        [
+            ruff,
+            "check",
+            "--isolated",
+            "--no-cache",
+            "--select",
+            "F401",
+            "--output-format",
+            "concise",
+            str(core / COMPONENT),
+            str(core / TESTS),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
 
 
 def test_a_cut_formatted_with_ruff_is_still_idempotent(core_cut: ModuleType, core: Path) -> None:
