@@ -12,6 +12,7 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from pybabytracker import (
     BabyTrackerConnectionError,
     ProtocolError,
@@ -492,6 +493,32 @@ async def test_a_failing_save_does_not_replace_the_sync_error(
     flows = hass.config_entries.flow.async_progress_by_handler(DOMAIN)  # Core PR 2
     assert not flows  # Core PR 2
     assert "disk full" in caplog.text
+
+
+async def test_the_sync_state_is_stored_with_owner_only_permissions(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry, server: FakeServer
+) -> None:
+    """Test the sync state, which holds the babies' care history, is a private store."""
+    with patch("custom_components.baby_tracker.coordinator.Store", wraps=Store) as store:
+        mock_config_entry.add_to_hass(hass)
+        await hass.config_entries.async_setup(mock_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert store.call_args.kwargs.get("private") is True
+
+
+async def test_a_password_rejected_after_setup_stops_the_syncs(
+    hass: HomeAssistant, init_integration: MockConfigEntry, server: FakeServer
+) -> None:
+    """Test a rejected password stops polling instead of signing in again every interval."""
+    server.password = "other-password"
+    await tick(hass, 5)
+    attempts = len(server.sign_ins)
+
+    await tick(hass, 10)
+    await tick(hass, 15)
+
+    assert len(server.sign_ins) == attempts
 
 
 async def test_a_rejected_login_is_reported_with_a_translation_key(
