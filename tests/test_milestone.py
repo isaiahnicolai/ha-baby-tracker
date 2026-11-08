@@ -63,7 +63,7 @@ async def test_the_last_milestone_shows_its_name_and_details(
     assert state is not None
     assert state.state == "Back home"
     assert state.attributes["time"] == at(30).isoformat()
-    assert state.attributes["description"] == "came home"
+    assert state.attributes["description"] == "Baby One came home"
     assert state.attributes["milestone_id"] == BACK_HOME
     assert state.attributes["note"] == "invented note"
 
@@ -93,6 +93,7 @@ async def test_log_milestone_posts_the_apps_built_in_milestone(
     state = hass.states.get(LAST)
     assert state is not None
     assert state.state == "First smile"
+    assert state.attributes["description"] == "Baby One's first smile"
 
 
 async def test_log_milestone_without_a_note_says_it_came_from_home_assistant(

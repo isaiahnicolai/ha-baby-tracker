@@ -455,6 +455,19 @@ class BabyTrackerNursingTimeSensor(BabyTrackerBabyEntity, SensorEntity):
 
 
 # Core PR 24
+def _milestone_sentence(baby: BabyData | None, description: object) -> str | None:
+    """Return the milestone as the app words it: the baby's name, then its description.
+
+    The app's descriptions start where the name ends (" came home", "'s first smile"), so
+    "Everly" and "'s first smile" read "Everly's first smile". Runs of spaces are tidied.
+    """
+    if not isinstance(description, str) or not description.strip():
+        return None
+    name = baby.name if baby is not None and baby.name else ""
+    return " ".join(f"{name}{description}".split())
+
+
+# Core PR 24
 LAST_MILESTONE = SensorEntityDescription(key="last_milestone", translation_key="last_milestone")
 
 
@@ -486,7 +499,7 @@ class BabyTrackerLastMilestoneSensor(BabyTrackerBabyEntity, SensorEntity):
         milestone_id = selection.get("objectID") if isinstance(selection, dict) else None
         return {
             "time": time.isoformat() if time else None,
-            "description": description.strip() if isinstance(description, str) else None,
+            "description": _milestone_sentence(self._baby, description),
             "milestone_id": milestone_id if isinstance(milestone_id, str) else None,
             "note": _note(milestone),
         }
