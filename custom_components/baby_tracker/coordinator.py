@@ -28,6 +28,7 @@ from pybabytracker import (
     BabyTrackerClient,
     BabyTrackerError,
     DayTotals,  # Core PR 7
+    Nursing,  # Core PR 4
     NursingTimer,  # Core PR 18
     PumpTimer,  # Core PR 21
     Record,
@@ -262,7 +263,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
                 sleep=latest.get("Sleep"),
                 today=self._today(baby_id),  # Core PR 7
                 nursing=self.timers.nursing.get(baby_id),  # Core PR 18
-                last_nursing=latest.get("Nursing"),  # Core PR 4
+                last_nursing=self._last_nursing(latest),  # Core PR 4
                 photo_file=_photo_file(self.engine.babies().get(baby_id)),  # Core PR 23
                 latest_picture=self._latest_picture(baby_id),  # Core PR 23
                 milestone=latest.get("Milestone"),  # Core PR 24
@@ -279,6 +280,16 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
     # Core PR 23
     def _latest_picture(self, baby_id: str) -> AttachedPicture | None:
         return newest_attached_picture(self.engine.records.values(), baby_id)
+
+    # Core PR 4
+    def _last_nursing(self, latest: dict[str, Record]) -> Record | None:
+        """Return the newest nursing of any kind.
+
+        An iPhone's timer and a manual entry sync as ``Nursing``, but the Android app's timer
+        syncs as ``NursingSession`` (a ``Nursing`` subclass), and the app stores both as rows of
+        its one Nursing table. So the newest is picked by class, not by type name.
+        """
+        return _newest([record for record in latest.values() if isinstance(record, Nursing)])
 
     def _rebuild(self) -> BabyTrackerData:
         """Build the data, then do what a new snapshot calls for.

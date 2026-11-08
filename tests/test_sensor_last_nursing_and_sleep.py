@@ -1,5 +1,6 @@
 """Core PR 4: the last nursing sensors (time, total and side minutes) and last sleep duration."""
 
+import pybabytracker
 import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
@@ -141,3 +142,36 @@ async def test_the_sleep_duration_is_unknown_while_a_sleep_runs_then_shows_it(
     server.add_record(DEVICE_A, "Sleep", object_id, when=at(30), op=OP_UPDATE, duration=50)
     await tick(hass)
     assert _value(hass, SLEEP) == "50"
+
+
+@pytest.mark.skipif(
+    not hasattr(pybabytracker, "NursingSession"), reason="needs a pybabytracker that decodes it"
+)
+async def test_an_android_timer_session_is_the_last_nursing(
+    hass: HomeAssistant, init_integration: MockConfigEntry, server: FakeServer
+) -> None:
+    """Test Android's NursingSession counts, newer or older than a Nursing."""
+    _nursing(server, 1, 30, leftDuration=4, rightDuration=0, bothDuration=0)
+    server.add_record(
+        DEVICE_A,
+        "NursingSession",
+        "N0000000-0000-4000-8000-000000000009",
+        when=at(60),
+        leftDuration=6,
+        rightDuration=9,
+        bothDuration=0,
+        finishSide=1,
+        detailed=True,
+        state=5,
+        pairSessionState=0,
+        leftTimestamps=[],
+        rightTimestamps=[],
+    )
+    await tick(hass)
+    assert _value(hass, LAST_NURSING) == at(60).isoformat()
+    assert _value(hass, DURATION) == "15"
+
+    _nursing(server, 2, 90, leftDuration=3, rightDuration=0, bothDuration=0)
+    await tick(hass)
+    assert _value(hass, LAST_NURSING) == at(90).isoformat()
+    assert _value(hass, DURATION) == "3"
