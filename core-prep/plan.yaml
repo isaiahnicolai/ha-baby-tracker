@@ -1,10 +1,10 @@
 # The core pull request sequence, as data for scripts/core_cut.py.
 #
-# Every value is the planned core PR that brings an item into core (1 to 22), or `hacs` for an
+# Every value is the planned core PR that brings an item into core (1 to 23), or `hacs` for an
 # item that stays in this repository. A cut for PR N writes everything planned for PRs 1 to N.
 # Python code inside a file is cut by markers in the source: see scripts/core_cut.py.
 
-prs: 22
+prs: 23
 
 # Files of custom_components/baby_tracker/. strings.json, icons.json, services.yaml,
 # manifest.json, and quality_scale.yaml are generated, so they aren't listed.
@@ -26,6 +26,8 @@ integration_files:
   timers.py: 18
   timer_state.py: 18
   guard.py: 18
+  image.py: 23
+  pictures.py: 23
   brand: hacs
   translations: hacs
 
@@ -83,6 +85,8 @@ keys:
   entity.button.discard_nursing: 20
   entity.sensor.pump_timer: 21
   entity.switch.pump: 21
+  entity.image.photo: 23
+  entity.image.latest_picture: 23
   services.log_diaper: 9
   services.log_bottle: 10
   services.log_nursing: 10

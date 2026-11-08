@@ -24,6 +24,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util  # Core PR 7
 from pybabytracker import (
     AuthenticationError,
+    Baby,  # Core PR 23
     BabyTrackerClient,
     BabyTrackerError,
     DayTotals,  # Core PR 7
@@ -43,6 +44,11 @@ from .const import (
     is_account_identifier,  # Core PR 6
 )
 from .guard import TimerGuard  # Core PR 18
+from .pictures import (  # Core PR 23
+    AttachedPicture,
+    PictureCache,
+    newest_attached_picture,
+)
 from .timer_state import TimerState  # Core PR 18
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,6 +69,12 @@ class BabyData:
     sleep: Record | None = None
     today: DayTotals = DayTotals()  # Core PR 7
     nursing: NursingTimer | None = None  # Core PR 18
+    # Core PR 23
+    # The baby's photo in the app (the cover photo), as a file on the service.
+    photo_file: str | None = None
+    # Core PR 23
+    # The newest picture attached to any of the baby's records.
+    latest_picture: AttachedPicture | None = None
 
     # Core PR 8
     @property
@@ -83,11 +95,31 @@ class BabyTrackerData:
     # Core PR 21
     # Home Assistant's own pump timer, while it runs. It belongs to the account too.
     pump: PumpTimer | None = None
+    # Core PR 23
+    # The picture files downloaded so far, so a download that lands updates the images.
+    downloaded_pictures: frozenset[str] = frozenset()
 
 
 def storage_key(entry_id: str) -> str:
     """Return the storage key for an entry's sync state."""
     return f"{DOMAIN}.{entry_id}"
+
+
+# Core PR 23
+def _photo_file(baby: Baby | None) -> str | None:
+    return baby.picture_file if baby is not None else None
+
+
+# Core PR 23
+def _wanted_pictures(data: BabyTrackerData) -> set[str]:
+    """Return the picture files the entities show: each baby's photo and newest picture."""
+    wanted: set[str] = set()
+    for baby in data.babies.values():
+        if baby.photo_file is not None:
+            wanted.add(baby.photo_file)
+        if baby.latest_picture is not None:
+            wanted.add(baby.latest_picture.file)
+    return wanted
 
 
 def _newest(records: list[Record]) -> Record | None:
@@ -128,6 +160,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
             always_update=False,
         )
         self.client = client
+        self.pictures = PictureCache(client)  # Core PR 23
         self.session = session
         self._device_uuid: str = entry.data[CONF_DEVICE_UUID]
         self.engine = SyncEngine(self._device_uuid)
@@ -186,6 +219,10 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
             # Keep progress even when a later device failed.
             if dict(self.engine.last_seen) != before:
                 await self._async_save()
+        # Core PR 23
+        # Pictures download after the sync, so a slow or failed download never fails the sync,
+        # and before the data is built, so a picture that arrives is published with it.
+        await self.pictures.async_fetch(_wanted_pictures(self._snapshot()))
         return self._rebuild()
 
     async def _async_save(self) -> None:
@@ -219,12 +256,19 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
                 sleep=latest.get("Sleep"),
                 today=self._today(baby_id),  # Core PR 7
                 nursing=self.timers.nursing.get(baby_id),  # Core PR 18
+                photo_file=_photo_file(self.engine.babies().get(baby_id)),  # Core PR 23
+                latest_picture=self._latest_picture(baby_id),  # Core PR 23
             )
         return BabyTrackerData(
             babies=babies,
             last_pump=self.engine.latest_pump(),  # Core PR 5
             pump=self.timers.pump,  # Core PR 21
+            downloaded_pictures=frozenset(self.pictures.files),  # Core PR 23
         )
+
+    # Core PR 23
+    def _latest_picture(self, baby_id: str) -> AttachedPicture | None:
+        return newest_attached_picture(self.engine.records.values(), baby_id)
 
     def _rebuild(self) -> BabyTrackerData:
         """Build the data, then do what a new snapshot calls for.
