@@ -7,6 +7,7 @@ the checks that refuse bad input before anything is sent.
 """
 
 import logging
+import math  # Core PR 26
 import uuid
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
@@ -43,7 +44,9 @@ from pybabytracker import (
     SyncEngine,
     TimerNotRunningError,
     UnknownBabyError,
+    UnknownMedicineError,  # Core PR 26
     UnknownMilestoneError,  # Core PR 24
+    UnknownVaccineError,  # Core PR 25
     ValidationError,
     Volume,
     WriteOutcomeUnknownError,
@@ -301,6 +304,86 @@ async def async_log_milestone(
             client,
             baby_id,
             milestone,
+            time=moment,
+            timezone_offset=offset,
+            note=_note(note),
+            object_id=object_id,
+        )
+
+    await _add(coordinator, object_id, add)
+
+
+# Core PR 25
+async def async_log_vaccine(
+    coordinator: BabyTrackerCoordinator,
+    baby_id: str,
+    vaccine: str,
+    *,
+    time: datetime | None = None,
+    note: str = "",
+    object_id: str | None = None,
+) -> None:
+    """Add a vaccine the baby was given: one of the app's or one added in the app."""
+    try:
+        coordinator.engine.find_vaccine(vaccine)
+    except UnknownVaccineError as err:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_vaccine",
+            translation_placeholders={"vaccine": vaccine},
+        ) from err
+    moment, offset = _in_home_assistant_time(time)
+
+    async def add(engine: SyncEngine, client: BabyTrackerClient, object_id: str | None) -> object:
+        return await engine.add_vaccine(
+            client,
+            baby_id,
+            vaccine,
+            time=moment,
+            timezone_offset=offset,
+            note=_note(note),
+            object_id=object_id,
+        )
+
+    await _add(coordinator, object_id, add)
+
+
+# Core PR 26
+async def async_log_medicine(
+    coordinator: BabyTrackerCoordinator,
+    baby_id: str,
+    medicine: str,
+    *,
+    amount: float | None = None,
+    time: datetime | None = None,
+    note: str = "",
+    object_id: str | None = None,
+) -> None:
+    """Add a dose of a medicine the account has used, of ``amount`` (default its usual dose)."""
+    try:
+        choice = coordinator.engine.find_medicine(medicine)
+    except UnknownMedicineError as err:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_medicine",
+            translation_placeholders={"medicine": medicine},
+        ) from err
+    if amount is None and choice.selection.get("amountPerTime") is None:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="medicine_needs_amount",
+            translation_placeholders={"medicine": choice.name},
+        )
+    if amount is not None and not (math.isfinite(amount) and round(amount, 2) > 0):
+        raise validation_error("invalid_amount")
+    moment, offset = _in_home_assistant_time(time)
+
+    async def add(engine: SyncEngine, client: BabyTrackerClient, object_id: str | None) -> object:
+        return await engine.add_medication(
+            client,
+            baby_id,
+            medicine,
+            amount=amount,
             time=moment,
             timezone_offset=offset,
             note=_note(note),
