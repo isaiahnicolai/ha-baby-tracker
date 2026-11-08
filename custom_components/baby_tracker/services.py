@@ -24,10 +24,12 @@ from .writes import (
     async_discard_nursing,
     async_log_bottle,
     async_log_diaper,
+    async_log_medicine,  # Core PR 26
     async_log_milestone,  # Core PR 24
     async_log_nursing,
     async_log_pump,
     async_log_sleep,
+    async_log_vaccine,  # Core PR 25
     async_start_nursing,
     async_start_pump,
     async_start_sleep,
@@ -65,6 +67,8 @@ class BabyTrackerServiceArgument(StrEnum):
     END = "end"
     SIDE = "side"
     MILESTONE = "milestone"  # Core PR 24
+    VACCINE = "vaccine"  # Core PR 25
+    MEDICINE = "medicine"  # Core PR 26
 
 
 def _uuid_upper(value: object) -> str:
@@ -110,6 +114,28 @@ LOG_DIAPER_SCHEMA = _baby_schema(
 LOG_MILESTONE_SCHEMA = _baby_schema(
     {
         probatio.Required(BabyTrackerServiceArgument.MILESTONE): cv.string,
+        probatio.Optional(BabyTrackerServiceArgument.TIME): cv.datetime,
+        probatio.Optional(BabyTrackerServiceArgument.NOTE, default=""): cv.string,
+        probatio.Optional(BabyTrackerServiceArgument.OBJECT_ID): _uuid_upper,
+    }
+)
+
+# Core PR 25
+LOG_VACCINE_SCHEMA = _baby_schema(
+    {
+        probatio.Required(BabyTrackerServiceArgument.VACCINE): cv.string,
+        probatio.Optional(BabyTrackerServiceArgument.TIME): cv.datetime,
+        probatio.Optional(BabyTrackerServiceArgument.NOTE, default=""): cv.string,
+        probatio.Optional(BabyTrackerServiceArgument.OBJECT_ID): _uuid_upper,
+    }
+)
+
+# Core PR 26
+# The amount is optional (the medicine's usual dose) and checked in writes.py.
+LOG_MEDICINE_SCHEMA = _baby_schema(
+    {
+        probatio.Required(BabyTrackerServiceArgument.MEDICINE): cv.string,
+        probatio.Optional(BabyTrackerServiceArgument.AMOUNT): probatio.Coerce(float),
         probatio.Optional(BabyTrackerServiceArgument.TIME): cv.datetime,
         probatio.Optional(BabyTrackerServiceArgument.NOTE, default=""): cv.string,
         probatio.Optional(BabyTrackerServiceArgument.OBJECT_ID): _uuid_upper,
@@ -351,6 +377,33 @@ async def _log_diaper(call: ServiceCall) -> None:
     )
 
 
+# Core PR 25
+async def _log_vaccine(call: ServiceCall) -> None:
+    coordinator, baby_id = _baby(call)
+    await async_log_vaccine(
+        coordinator,
+        baby_id,
+        call.data[BabyTrackerServiceArgument.VACCINE],
+        time=call.data.get(BabyTrackerServiceArgument.TIME),
+        note=call.data[BabyTrackerServiceArgument.NOTE],
+        object_id=call.data.get(BabyTrackerServiceArgument.OBJECT_ID),
+    )
+
+
+# Core PR 26
+async def _log_medicine(call: ServiceCall) -> None:
+    coordinator, baby_id = _baby(call)
+    await async_log_medicine(
+        coordinator,
+        baby_id,
+        call.data[BabyTrackerServiceArgument.MEDICINE],
+        amount=call.data.get(BabyTrackerServiceArgument.AMOUNT),
+        time=call.data.get(BabyTrackerServiceArgument.TIME),
+        note=call.data[BabyTrackerServiceArgument.NOTE],
+        object_id=call.data.get(BabyTrackerServiceArgument.OBJECT_ID),
+    )
+
+
 # Core PR 24
 async def _log_milestone(call: ServiceCall) -> None:
     coordinator, baby_id = _baby(call)
@@ -536,4 +589,10 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(  # Core PR 24
         DOMAIN, BabyTrackerService.LOG_MILESTONE, _log_milestone, schema=LOG_MILESTONE_SCHEMA
+    )
+    hass.services.async_register(  # Core PR 25
+        DOMAIN, BabyTrackerService.LOG_VACCINE, _log_vaccine, schema=LOG_VACCINE_SCHEMA
+    )
+    hass.services.async_register(  # Core PR 26
+        DOMAIN, BabyTrackerService.LOG_MEDICINE, _log_medicine, schema=LOG_MEDICINE_SCHEMA
     )
