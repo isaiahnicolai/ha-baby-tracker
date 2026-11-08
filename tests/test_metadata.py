@@ -500,6 +500,8 @@ def test_every_sensor_has_a_translated_name() -> None:
         "diapers_today": "Diapers today",
         "feeds_today": "Feeds today",
         "bottle_volume_today": "Bottle volume today",
+        "nursing_minutes_today": "Nursing minutes today",
+        "last_breast": "Last breast",
         "last_diaper": "Last diaper",
         "last_feed": "Last feed",
         "last_pump": "Last pump",

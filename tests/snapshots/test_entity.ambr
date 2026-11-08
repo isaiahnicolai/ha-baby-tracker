@@ -265,6 +265,17 @@
       'translation_key': 'nursing_left_time',
       'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_nursing_left_time',
     }),
+    'sensor.baby_one_nursing_minutes_today': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '11111111-AAAA-4AAA-8AAA-000000000001',
+        ),
+      ]),
+      'device_name': 'Baby One',
+      'translation_key': 'nursing_minutes_today',
+      'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_nursing_minutes_today',
+    }),
     'sensor.baby_one_nursing_right_time': dict({
       'device_identifiers': list([
         tuple(
@@ -297,6 +308,17 @@
       'device_name': 'Baby One',
       'translation_key': 'sleep_timer',
       'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_sleep_timer',
+    }),
+    'sensor.baby_tracker_account_last_breast': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '<entry>_account',
+        ),
+      ]),
+      'device_name': 'Baby Tracker account',
+      'translation_key': 'last_breast',
+      'unique_id': '<entry>_last_breast',
     }),
     'sensor.baby_tracker_account_last_pump': dict({
       'device_identifiers': list([
@@ -451,6 +473,17 @@
       'device_name': 'Baby Two',
       'translation_key': 'nursing_left_time',
       'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_nursing_left_time',
+    }),
+    'sensor.baby_two_nursing_minutes_today': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '22222222-BBBB-4BBB-8BBB-000000000002',
+        ),
+      ]),
+      'device_name': 'Baby Two',
+      'translation_key': 'nursing_minutes_today',
+      'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_nursing_minutes_today',
     }),
     'sensor.baby_two_nursing_right_time': dict({
       'device_identifiers': list([

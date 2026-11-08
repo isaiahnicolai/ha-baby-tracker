@@ -30,6 +30,8 @@ from homeassistant.helpers.event import async_track_time_interval  # Core PR 19
 from homeassistant.util import dt as dt_util  # Core PR 19
 from homeassistant.util.unit_conversion import VolumeConverter  # Core PR 7
 from pybabytracker import (
+    SIDE_LEFT,  # Core PR 7
+    SIDE_RIGHT,  # Core PR 7
     DayTotals,  # Core PR 7
     Diaper,  # Core PR 4
     Formula,  # Core PR 4
@@ -208,6 +210,43 @@ class BabyTrackerLastPumpSensor(BabyTrackerAccountEntity, SensorEntity):
         return _pump_attributes(self.coordinator.data.last_pump)
 
 
+# Core PR 7
+LAST_BREAST = SensorEntityDescription(
+    key="last_breast",
+    translation_key="last_breast",
+    device_class=SensorDeviceClass.ENUM,
+    options=["left", "right", "none"],
+)
+
+
+# Core PR 7
+class BabyTrackerLastBreastSensor(BabyTrackerAccountEntity, SensorEntity):
+    """The side of the newest nursing (any baby) or pump, as the app shows before the next one.
+
+    It's the account's, not a baby's: one mother nurses every baby and pumps. ``none`` is a
+    session with no side; unknown is no session at all.
+    """
+
+    @property
+    @override
+    def native_value(self) -> str | None:
+        """Return left, right, or none, or None before the first nursing or pump."""
+        last = self.coordinator.data.last_breast
+        if last is None:
+            return None
+        return {SIDE_LEFT: "left", SIDE_RIGHT: "right"}.get(last.side, "none")
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return whether it was a nursing or a pump, and when."""
+        last = self.coordinator.data.last_breast
+        return {
+            "kind": last.kind if last is not None else None,
+            "time": last.time.isoformat() if last is not None else None,
+        }
+
+
 # Core PR 21
 PUMP_TIMER = SensorEntityDescription(
     key="pump_timer",
@@ -268,6 +307,16 @@ TODAY_SENSORS: tuple[BabyTrackerTodaySensorDescription, ...] = (
         # The value is in milliliters; the entity converts it to the unit system's unit.
         value_fn=lambda totals: totals.bottle_milliliters,
     ),
+    BabyTrackerTodaySensorDescription(
+        key="nursing_minutes_today",
+        translation_key="nursing_minutes_today",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        state_class=SensorStateClass.TOTAL,
+        # An Android timer's NursingSession counts like any nursing.
+        value_fn=lambda totals: totals.nursing_minutes,
+        attributes_fn=lambda totals: {"nursings": totals.nursings},
+    ),
 )
 
 
@@ -282,7 +331,7 @@ class BabyTrackerTodaySensor(BabyTrackerBabyEntity, SensorEntity):
     def native_unit_of_measurement(self) -> str | None:
         """Return the unit of measurement, avoiding gallons for bottle volumes."""
         if self.entity_description.device_class is not SensorDeviceClass.VOLUME:
-            return None
+            return self.entity_description.native_unit_of_measurement
         # Home Assistant's US customary system measures volume in gallons: too big for a bottle.
         if self.hass.config.units.volume_unit == UnitOfVolume.GALLONS:
             return UnitOfVolume.FLUID_OUNCES
@@ -308,7 +357,7 @@ class BabyTrackerTodaySensor(BabyTrackerBabyEntity, SensorEntity):
             return None
         value = self.entity_description.value_fn(baby.today)
         unit = self.native_unit_of_measurement
-        if unit is None:
+        if unit is None or self.entity_description.device_class is not SensorDeviceClass.VOLUME:
             return value
         return round(VolumeConverter.convert(value, UnitOfVolume.MILLILITERS, unit), 2)
 
@@ -580,6 +629,7 @@ ACCOUNT_SENSORS: tuple[
     tuple[tuple[SensorEntityDescription, ...], type[BabyTrackerAccountEntity]], ...
 ] = (
     ((LAST_PUMP,), BabyTrackerLastPumpSensor),
+    ((LAST_BREAST,), BabyTrackerLastBreastSensor),  # Core PR 7
     ((PUMP_TIMER,), BabyTrackerPumpTimerSensor),  # Core PR 21
 )
 BABY_SENSORS: tuple[

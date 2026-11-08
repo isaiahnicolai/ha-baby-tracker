@@ -27,6 +27,7 @@ from pybabytracker import (
     BabyTrackerClient,
     BabyTrackerError,
     DayTotals,  # Core PR 7
+    LastBreast,  # Core PR 7
     Nursing,  # Core PR 4
     NursingTimer,  # Core PR 18
     PumpTimer,  # Core PR 21
@@ -34,6 +35,7 @@ from pybabytracker import (
     Sleep,  # Core PR 8
     SyncEngine,
     day_totals,  # Core PR 7
+    last_breast,  # Core PR 7
 )
 
 from .const import (
@@ -87,6 +89,9 @@ class BabyTrackerData:
     # Core PR 21
     # Home Assistant's own pump timer, while it runs. It belongs to the account too.
     pump: PumpTimer | None = None
+    # Core PR 7
+    # The newest nursing (any baby) or pump, and its side, as the app shows before the next.
+    last_breast: LastBreast | None = None
 
 
 def storage_key(entry_id: str) -> str:
@@ -229,6 +234,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
             babies=babies,
             last_pump=self.engine.latest_pump(),  # Core PR 5
             pump=self.timers.pump,  # Core PR 21
+            last_breast=last_breast(self.engine.records.values(), dt_util.utcnow()),  # Core PR 7
         )
 
     # Core PR 4

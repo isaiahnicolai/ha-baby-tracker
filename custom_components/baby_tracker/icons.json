@@ -77,6 +77,12 @@
       },
       "pump_timer": {
         "default": "mdi:timer-sand"
+      },
+      "nursing_minutes_today": {
+        "default": "mdi:timer-outline"
+      },
+      "last_breast": {
+        "default": "mdi:mother-nurse"
       }
     },
     "switch": {
