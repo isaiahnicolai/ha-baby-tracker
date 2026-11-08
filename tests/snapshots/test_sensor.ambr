@@ -283,6 +283,60 @@
     'state': '2026-10-25T13:00:00+00:00',
   })
 # ---
+# name: test_sensors[sensor.baby_one_last_milestone-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': None,
+    'entity_id': 'sensor.baby_one_last_milestone',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last milestone',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Last milestone',
+    'platform': 'baby_tracker',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'last_milestone',
+    'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_last_milestone',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_sensors[sensor.baby_one_last_milestone-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'description': None,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Baby One Last milestone',
+      'milestone_id': None,
+      'note': None,
+      'time': None,
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.baby_one_last_milestone',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
 # name: test_sensors[sensor.baby_one_last_sleep-entry]
   EntityRegistryEntrySnapshot({
     'aliases': list([
@@ -936,6 +990,60 @@
     }),
     'context': <ANY>,
     'entity_id': 'sensor.baby_two_last_feed',
+    'last_changed': <ANY>,
+    'last_reported': <ANY>,
+    'last_updated': <ANY>,
+    'state': 'unknown',
+  })
+# ---
+# name: test_sensors[sensor.baby_two_last_milestone-entry]
+  EntityRegistryEntrySnapshot({
+    'aliases': list([
+      None,
+    ]),
+    'area_id': None,
+    'capabilities': None,
+    'config_entry_id': <ANY>,
+    'config_subentry_id': <ANY>,
+    'device_class': None,
+    'device_id': <ANY>,
+    'disabled_by': None,
+    'domain': 'sensor',
+    'entity_category': None,
+    'entity_id': 'sensor.baby_two_last_milestone',
+    'has_entity_name': True,
+    'hidden_by': None,
+    'icon': None,
+    'id': <ANY>,
+    'labels': set({
+    }),
+    'name': None,
+    'object_id_base': 'Last milestone',
+    'options': dict({
+    }),
+    'original_device_class': None,
+    'original_icon': None,
+    'original_name': 'Last milestone',
+    'platform': 'baby_tracker',
+    'previous_unique_id': None,
+    'suggested_object_id': None,
+    'supported_features': 0,
+    'translation_key': 'last_milestone',
+    'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_last_milestone',
+    'unit_of_measurement': None,
+  })
+# ---
+# name: test_sensors[sensor.baby_two_last_milestone-state]
+  StateSnapshot({
+    'attributes': ReadOnlyDict({
+      'description': None,
+      <EntityStateAttribute.FRIENDLY_NAME: 'friendly_name'>: 'Baby Two Last milestone',
+      'milestone_id': None,
+      'note': None,
+      'time': None,
+    }),
+    'context': <ANY>,
+    'entity_id': 'sensor.baby_two_last_milestone',
     'last_changed': <ANY>,
     'last_reported': <ANY>,
     'last_updated': <ANY>,

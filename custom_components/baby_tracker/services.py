@@ -24,6 +24,7 @@ from .writes import (
     async_discard_nursing,
     async_log_bottle,
     async_log_diaper,
+    async_log_milestone,  # Core PR 24
     async_log_nursing,
     async_log_pump,
     async_log_sleep,
@@ -63,6 +64,7 @@ class BabyTrackerServiceArgument(StrEnum):
     START = "start"
     END = "end"
     SIDE = "side"
+    MILESTONE = "milestone"  # Core PR 24
 
 
 def _uuid_upper(value: object) -> str:
@@ -96,6 +98,18 @@ def _baby_schema(fields: dict[Any, Any]) -> probatio.All[Any]:
 LOG_DIAPER_SCHEMA = _baby_schema(
     {
         probatio.Required(BabyTrackerServiceArgument.TYPE): probatio.In(list(DIAPER_STATUS)),
+        probatio.Optional(BabyTrackerServiceArgument.TIME): cv.datetime,
+        probatio.Optional(BabyTrackerServiceArgument.NOTE, default=""): cv.string,
+        probatio.Optional(BabyTrackerServiceArgument.OBJECT_ID): _uuid_upper,
+    }
+)
+
+# Core PR 24
+# A milestone is checked against the baby's pick list in writes.py, so an unknown one gets a
+# translated message.
+LOG_MILESTONE_SCHEMA = _baby_schema(
+    {
+        probatio.Required(BabyTrackerServiceArgument.MILESTONE): cv.string,
         probatio.Optional(BabyTrackerServiceArgument.TIME): cv.datetime,
         probatio.Optional(BabyTrackerServiceArgument.NOTE, default=""): cv.string,
         probatio.Optional(BabyTrackerServiceArgument.OBJECT_ID): _uuid_upper,
@@ -337,6 +351,19 @@ async def _log_diaper(call: ServiceCall) -> None:
     )
 
 
+# Core PR 24
+async def _log_milestone(call: ServiceCall) -> None:
+    coordinator, baby_id = _baby(call)
+    await async_log_milestone(
+        coordinator,
+        baby_id,
+        call.data[BabyTrackerServiceArgument.MILESTONE],
+        time=call.data.get(BabyTrackerServiceArgument.TIME),
+        note=call.data[BabyTrackerServiceArgument.NOTE],
+        object_id=call.data.get(BabyTrackerServiceArgument.OBJECT_ID),
+    )
+
+
 async def _log_bottle(call: ServiceCall) -> None:
     coordinator, baby_id = _baby(call)
     await async_log_bottle(
@@ -506,4 +533,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
     )
     hass.services.async_register(
         DOMAIN, BabyTrackerService.DISCARD_NURSING, _discard_nursing, schema=BABY_ONLY_SCHEMA
+    )
+    hass.services.async_register(  # Core PR 24
+        DOMAIN, BabyTrackerService.LOG_MILESTONE, _log_milestone, schema=LOG_MILESTONE_SCHEMA
     )

@@ -33,6 +33,7 @@ from pybabytracker import (
     DayTotals,  # Core PR 7
     Diaper,  # Core PR 4
     Formula,  # Core PR 4
+    Milestone,  # Core PR 24
     Nursing,  # Core PR 4
     Pump,  # Core PR 5
     Pumped,  # Core PR 4
@@ -453,6 +454,44 @@ class BabyTrackerNursingTimeSensor(BabyTrackerBabyEntity, SensorEntity):
         return round(seconds / 60, 1)
 
 
+# Core PR 24
+LAST_MILESTONE = SensorEntityDescription(key="last_milestone", translation_key="last_milestone")
+
+
+# Core PR 24
+class BabyTrackerLastMilestoneSensor(BabyTrackerBabyEntity, SensorEntity):
+    """The name of the newest milestone the baby reached, with when it was."""
+
+    @property
+    def _milestone(self) -> Milestone | None:
+        baby = self._baby
+        record = baby.milestone if baby is not None else None
+        return record if isinstance(record, Milestone) else None
+
+    @property
+    @override
+    def native_value(self) -> str | None:
+        """Return the newest milestone's name, or None before the first."""
+        milestone = self._milestone
+        return milestone.milestone_name if milestone is not None else None
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return when the newest milestone was, how the app words it, its ID, and its note."""
+        milestone = self._milestone
+        time = milestone.time if milestone is not None else None
+        selection = milestone.milestone_type if milestone is not None else None
+        description = selection.get("desc") if isinstance(selection, dict) else None
+        milestone_id = selection.get("objectID") if isinstance(selection, dict) else None
+        return {
+            "time": time.isoformat() if time else None,
+            "description": description.strip() if isinstance(description, str) else None,
+            "milestone_id": milestone_id if isinstance(milestone_id, str) else None,
+            "note": _note(milestone),
+        }
+
+
 # One row per kind of sensor: its descriptions and the entity class built from each.
 # Core PR 5
 ACCOUNT_SENSORS: tuple[
@@ -469,6 +508,7 @@ BABY_SENSORS: tuple[
     ((SLEEP_TIMER,), BabyTrackerTimerSensor),  # Core PR 8
     ((NURSING_TIMER,), BabyTrackerTimerSensor),  # Core PR 19
     (NURSING_TIME_SENSORS, BabyTrackerNursingTimeSensor),  # Core PR 19
+    ((LAST_MILESTONE,), BabyTrackerLastMilestoneSensor),  # Core PR 24
 )
 
 

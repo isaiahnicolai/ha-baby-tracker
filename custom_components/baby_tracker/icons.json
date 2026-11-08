@@ -70,6 +70,9 @@
       },
       "pump_timer": {
         "default": "mdi:timer-sand"
+      },
+      "last_milestone": {
+        "default": "mdi:star"
       }
     },
     "switch": {
@@ -145,6 +148,9 @@
     },
     "stop_pump": {
       "service": "mdi:timer-stop"
+    },
+    "log_milestone": {
+      "service": "mdi:star"
     }
   }
 }

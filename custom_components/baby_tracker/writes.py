@@ -43,6 +43,7 @@ from pybabytracker import (
     SyncEngine,
     TimerNotRunningError,
     UnknownBabyError,
+    UnknownMilestoneError,  # Core PR 24
     ValidationError,
     Volume,
     WriteOutcomeUnknownError,
@@ -264,6 +265,42 @@ async def async_log_diaper(
             client,
             baby_id,
             DIAPER_STATUS[kind],
+            time=moment,
+            timezone_offset=offset,
+            note=_note(note),
+            object_id=object_id,
+        )
+
+    await _add(coordinator, object_id, add)
+
+
+# Core PR 24
+async def async_log_milestone(
+    coordinator: BabyTrackerCoordinator,
+    baby_id: str,
+    milestone: str,
+    *,
+    time: datetime | None = None,
+    note: str = "",
+    object_id: str | None = None,
+) -> None:
+    """Add a milestone the baby reached: one of the app's or one added in the app, by name or ID."""
+    try:
+        coordinator.engine.find_milestone(milestone, baby_id)
+    except UnknownMilestoneError as err:
+        # Checked here too so the message can name it; the write checks again under the lock.
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_milestone",
+            translation_placeholders={"milestone": milestone},
+        ) from err
+    moment, offset = _in_home_assistant_time(time)
+
+    async def add(engine: SyncEngine, client: BabyTrackerClient, object_id: str | None) -> object:
+        return await engine.add_milestone(
+            client,
+            baby_id,
+            milestone,
             time=moment,
             timezone_offset=offset,
             note=_note(note),
