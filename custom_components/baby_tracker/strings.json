@@ -86,6 +86,25 @@
         "name": "Discard nursing"
       }
     },
+    "image": {
+      "latest_picture": {
+        "name": "Latest picture",
+        "state_attributes": {
+          "record_id": {
+            "name": "Entry ID"
+          },
+          "record_type": {
+            "name": "Entry type"
+          },
+          "time": {
+            "name": "Time"
+          }
+        }
+      },
+      "photo": {
+        "name": "Photo"
+      }
+    },
     "sensor": {
       "diapers_today": {
         "name": "Diapers today",

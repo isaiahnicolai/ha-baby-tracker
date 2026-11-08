@@ -26,6 +26,14 @@
         "default": "mdi:timer-off"
       }
     },
+    "image": {
+      "latest_picture": {
+        "default": "mdi:image"
+      },
+      "photo": {
+        "default": "mdi:account-box"
+      }
+    },
     "sensor": {
       "diapers_today": {
         "default": "mdi:baby"

@@ -133,6 +133,50 @@
       'translation_key': 'wet_diaper',
       'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_wet_diaper',
     }),
+    'image.baby_one_latest_picture': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '11111111-AAAA-4AAA-8AAA-000000000001',
+        ),
+      ]),
+      'device_name': 'Baby One',
+      'translation_key': 'latest_picture',
+      'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_latest_picture',
+    }),
+    'image.baby_one_photo': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '11111111-AAAA-4AAA-8AAA-000000000001',
+        ),
+      ]),
+      'device_name': 'Baby One',
+      'translation_key': 'photo',
+      'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_photo',
+    }),
+    'image.baby_two_latest_picture': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '22222222-BBBB-4BBB-8BBB-000000000002',
+        ),
+      ]),
+      'device_name': 'Baby Two',
+      'translation_key': 'latest_picture',
+      'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_latest_picture',
+    }),
+    'image.baby_two_photo': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '22222222-BBBB-4BBB-8BBB-000000000002',
+        ),
+      ]),
+      'device_name': 'Baby Two',
+      'translation_key': 'photo',
+      'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_photo',
+    }),
     'sensor.baby_one_bottle_volume_today': dict({
       'device_identifiers': list([
         tuple(
