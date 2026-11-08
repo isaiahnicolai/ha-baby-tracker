@@ -85,3 +85,4 @@ class BabyTrackerService(StrEnum):
     SWITCH_NURSING_SIDE = "switch_nursing_side"
     STOP_NURSING = "stop_nursing"
     DISCARD_NURSING = "discard_nursing"
+    LOG_MILESTONE = "log_milestone"  # Core PR 24

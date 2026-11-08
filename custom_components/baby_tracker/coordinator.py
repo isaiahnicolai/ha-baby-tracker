@@ -78,6 +78,7 @@ class BabyData:
     # Core PR 23
     # The newest picture attached to any of the baby's records.
     latest_picture: AttachedPicture | None = None
+    milestone: Record | None = None  # Core PR 24
 
     # Core PR 8
     @property
@@ -262,6 +263,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
                 last_nursing=latest.get("Nursing"),  # Core PR 4
                 photo_file=_photo_file(self.engine.babies().get(baby_id)),  # Core PR 23
                 latest_picture=self._latest_picture(baby_id),  # Core PR 23
+                milestone=latest.get("Milestone"),  # Core PR 24
             )
         return BabyTrackerData(
             babies=babies,

@@ -181,6 +181,23 @@
       },
       "pump_timer": {
         "name": "Pump timer"
+      },
+      "last_milestone": {
+        "name": "Last milestone",
+        "state_attributes": {
+          "time": {
+            "name": "Time"
+          },
+          "description": {
+            "name": "Description"
+          },
+          "milestone_id": {
+            "name": "Milestone ID"
+          },
+          "note": {
+            "name": "Note"
+          }
+        }
       }
     },
     "switch": {
@@ -506,6 +523,32 @@
           "description": "An optional note to save with the pump."
         }
       }
+    },
+    "log_milestone": {
+      "name": "Log milestone",
+      "description": "Adds a milestone a baby reached, as Home Assistant's own device in the Baby Tracker account.",
+      "fields": {
+        "device_id": {
+          "name": "Baby",
+          "description": "The baby's device."
+        },
+        "milestone": {
+          "name": "Milestone",
+          "description": "The milestone's name as the app shows it, such as First smile, or one added in the app. Case doesn't matter."
+        },
+        "time": {
+          "name": "Time",
+          "description": "When it happened. Defaults to now. A time without an offset is read in Home Assistant's time zone."
+        },
+        "note": {
+          "name": "Note",
+          "description": "An optional note to save with the milestone."
+        },
+        "object_id": {
+          "name": "Record ID",
+          "description": "A UUID you choose. Reuse the same one to retry safely: if a write with this ID already landed, nothing is added again. Leave it empty for a new milestone each time."
+        }
+      }
     }
   },
   "selector": {
@@ -634,6 +677,9 @@
     },
     "minutes_with_sides": {
       "message": "Give the minutes or the minutes for each side, not both."
+    },
+    "unknown_milestone": {
+      "message": "Milestone {milestone} isn't one of the app's, or one added in the app for this baby. Check the name as the app shows it."
     }
   },
   "issues": {

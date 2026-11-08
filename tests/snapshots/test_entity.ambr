@@ -232,6 +232,17 @@
       'translation_key': 'last_feed',
       'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_last_feed',
     }),
+    'sensor.baby_one_last_milestone': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '11111111-AAAA-4AAA-8AAA-000000000001',
+        ),
+      ]),
+      'device_name': 'Baby One',
+      'translation_key': 'last_milestone',
+      'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_last_milestone',
+    }),
     'sensor.baby_one_last_nursing': dict({
       'device_identifiers': list([
         tuple(
@@ -418,6 +429,17 @@
       'device_name': 'Baby Two',
       'translation_key': 'last_feed',
       'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_last_feed',
+    }),
+    'sensor.baby_two_last_milestone': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '22222222-BBBB-4BBB-8BBB-000000000002',
+        ),
+      ]),
+      'device_name': 'Baby Two',
+      'translation_key': 'last_milestone',
+      'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_last_milestone',
     }),
     'sensor.baby_two_last_nursing': dict({
       'device_identifiers': list([

@@ -112,6 +112,7 @@ def test_services_yaml_describes_the_diaper_and_undo_actions_and_their_fields() 
         "switch_nursing_side",
         "stop_nursing",
         "discard_nursing",
+        "log_milestone",
     }
     assert set(services["log_diaper"]["fields"]) == {
         "device_id",
@@ -199,8 +200,10 @@ def test_services_yaml_describes_the_new_actions_and_their_fields() -> None:
         "switch_nursing_side",
         "stop_nursing",
         "discard_nursing",
+        "log_milestone",
     }
     fields = {name: set(spec["fields"]) for name, spec in services.items()}
+    assert fields["log_milestone"] == {"device_id", "milestone", "time", "note", "object_id"}
     assert fields["log_bottle"] == {
         "device_id",
         "kind",
@@ -514,6 +517,7 @@ def test_every_sensor_has_a_translated_name() -> None:
         "nursing_left_time": "Nursing left time",
         "nursing_right_time": "Nursing right time",
         "pump_timer": "Pump timer",
+        "last_milestone": "Last milestone",
     }
 
 
