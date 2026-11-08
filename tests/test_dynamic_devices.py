@@ -68,8 +68,15 @@ DETAIL_KEYS = (
 )
 
 
-# The counts and the asleep sensor are in test_sensor_today.py; each baby also has these four.
-TODAY_KEYS = ("diapers_today", "feeds_today", "bottle_volume_today", "asleep")
+# The counts and the asleep sensor are in test_sensor_today.py; each baby also has these five.
+# The account has three readings of its own: last pump, pump timer, and last breast.
+TODAY_KEYS = (
+    "diapers_today",
+    "feeds_today",
+    "bottle_volume_today",
+    "nursing_minutes_today",
+    "asleep",
+)
 
 
 TIMER_KEYS = ("sleep_timer", "nursing_timer", "nursing_left_time", "nursing_right_time")
@@ -196,4 +203,4 @@ async def test_syncing_again_does_not_duplicate_a_baby(
     await tick(hass)
     await tick(hass)
     entries = er.async_entries_for_config_entry(er.async_get(hass), init_integration.entry_id)
-    assert len([e for e in entries if e.domain in READINGS]) == 3 * PER_BABY + 2
+    assert len([e for e in entries if e.domain in READINGS]) == 3 * PER_BABY + 3

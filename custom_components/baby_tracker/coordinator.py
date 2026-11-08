@@ -28,6 +28,7 @@ from pybabytracker import (
     BabyTrackerClient,
     BabyTrackerError,
     DayTotals,  # Core PR 7
+    LastBreast,  # Core PR 7
     Nursing,  # Core PR 4
     NursingTimer,  # Core PR 18
     PumpTimer,  # Core PR 21
@@ -35,6 +36,7 @@ from pybabytracker import (
     Sleep,  # Core PR 8
     SyncEngine,
     day_totals,  # Core PR 7
+    last_breast,  # Core PR 7
 )
 
 from .const import (
@@ -105,6 +107,9 @@ class BabyTrackerData:
     # Core PR 23
     # The picture files downloaded so far, so a download that lands updates the images.
     downloaded_pictures: frozenset[str] = frozenset()
+    # Core PR 7
+    # The newest nursing (any baby) or pump, and its side, as the app shows before the next.
+    last_breast: LastBreast | None = None
 
 
 def storage_key(entry_id: str) -> str:
@@ -275,6 +280,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
             last_pump=self.engine.latest_pump(),  # Core PR 5
             pump=self.timers.pump,  # Core PR 21
             downloaded_pictures=frozenset(self.pictures.files),  # Core PR 23
+            last_breast=last_breast(self.engine.records.values(), dt_util.utcnow()),  # Core PR 7
         )
 
     # Core PR 23

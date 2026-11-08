@@ -97,6 +97,12 @@
       },
       "next_medicine_dose": {
         "default": "mdi:pill-multiple"
+      },
+      "nursing_minutes_today": {
+        "default": "mdi:timer-outline"
+      },
+      "last_breast": {
+        "default": "mdi:mother-nurse"
       }
     },
     "switch": {
