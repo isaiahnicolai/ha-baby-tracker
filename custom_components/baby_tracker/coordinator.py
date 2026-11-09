@@ -27,7 +27,10 @@ from pybabytracker import (
     BabyTrackerClient,
     BabyTrackerError,
     DayTotals,  # Core PR 7
+    Formula,
+    Nursing,
     NursingTimer,  # Core PR 18
+    Pumped,
     PumpTimer,  # Core PR 21
     Record,
     Sleep,  # Core PR 8
@@ -49,7 +52,8 @@ _LOGGER = logging.getLogger(__name__)
 
 type BabyTrackerConfigEntry = ConfigEntry[BabyTrackerCoordinator]
 
-FEED_TYPES = ("Nursing", "Formula", "Pumped")
+# A NursingSession (Android's timed nursing) is a Nursing, so an isinstance check covers it.
+FEED_CLASSES = (Nursing, Formula, Pumped)
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,7 +219,9 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
                 baby_id=baby_id,
                 name=name,
                 diaper=latest.get("Diaper"),
-                feed=_newest([latest[kind] for kind in FEED_TYPES if kind in latest]),
+                feed=_newest(
+                    [record for record in latest.values() if isinstance(record, FEED_CLASSES)]
+                ),
                 sleep=latest.get("Sleep"),
                 today=self._today(baby_id),  # Core PR 7
                 nursing=self.timers.nursing.get(baby_id),  # Core PR 18

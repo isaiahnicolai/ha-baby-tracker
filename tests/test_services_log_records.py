@@ -10,6 +10,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM, UnitSystem
 from pybabytracker import (
+    SIDE_LEFT,
+    SIDE_RIGHT,
     Formula,
     Nursing,
     Pumped,
@@ -145,7 +147,7 @@ async def test_log_nursing_with_only_one_side_writes_zero_for_the_other(
 
     record = only_record(server)
     assert isinstance(record, Nursing)
-    assert (record.left_duration, record.right_duration, record.finish_side) == (12, 0, 0)
+    assert (record.left_duration, record.right_duration, record.finish_side) == (12, 0, SIDE_LEFT)
     assert record.time.isoformat() == "2026-10-26T12:18:00+00:00"  # the start
 
 
@@ -161,7 +163,7 @@ async def test_log_nursing_without_an_end_time_ends_now(
 
     record = only_record(server)
     assert record.time.isoformat() == "2026-10-26T14:50:00+00:00"
-    assert record.finish_side == 1
+    assert record.finish_side == SIDE_RIGHT
 
 
 async def test_log_nursing_reads_a_naive_end_time_in_the_ha_zone(

@@ -6,6 +6,7 @@ from typing import Any
 import pytest  # HACS-only
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
+from pybabytracker import SIDE_NONE, SIDE_RIGHT
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from . import tick
@@ -80,7 +81,7 @@ async def test_a_nursing_feed_with_everything_set_has_every_feed_key(
         leftDuration=7,
         rightDuration=12,
         bothDuration=3,
-        finishSide=1,
+        finishSide=SIDE_RIGHT,
         note="sleepy",
     )
     await tick(hass)
@@ -322,13 +323,13 @@ async def test_a_nursing_feed_with_a_zero_duration_on_a_side_keeps_the_zero(
     assert attributes["both_duration_minutes"] == 0
 
 
-async def test_a_finish_side_of_left_keeps_its_label_though_its_code_is_zero(
+async def test_a_finish_side_that_is_not_set_has_no_label(
     hass: HomeAssistant, init_integration: MockConfigEntry, server: FakeServer
 ) -> None:
-    server.add_record(DEVICE_A, "Nursing", _id(22), when=at(40), finishSide=0)
+    server.add_record(DEVICE_A, "Nursing", _id(22), when=at(40), finishSide=SIDE_NONE)
     await tick(hass)
 
-    assert _attributes(hass, LAST_FEED)["finish_side"] == "left"
+    assert _attributes(hass, LAST_FEED)["finish_side"] is None
 
 
 async def test_a_wet_diaper_keeps_its_type_though_its_code_is_zero(

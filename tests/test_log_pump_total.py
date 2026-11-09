@@ -10,7 +10,7 @@ import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from pybabytracker import OP_ADD, Pump, Volume
+from pybabytracker import OP_ADD, SIDE_LEFT, Pump, Volume
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from . import NOW
@@ -161,7 +161,7 @@ async def test_the_start_time_and_finish_side_still_apply_to_a_total(
 
     record = only_pump(server)
     assert record.time.isoformat() == "2026-10-26T08:00:00+00:00"
-    assert record.finish_side == 0
+    assert record.finish_side == SIDE_LEFT
     assert record.note == "invented note"
 
 
