@@ -20,7 +20,7 @@ from pytest_homeassistant_custom_component.components.diagnostics import (
 )
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
-from custom_components.baby_tracker.const import DOMAIN
+from custom_components.baby_tracker.const import CONF_DEVICE_UUID, DOMAIN
 
 from . import BABY_THREE, DIAPER, ENTRY_ID, NEW_PASSWORD, NOW, tick
 from .factories import BABY_ONE_ID, DEVICE_B, at
@@ -368,3 +368,42 @@ async def test_the_fix_waits_for_a_write_in_flight_before_it_deletes_the_state(
     assert OLD_RECORD not in saved_records(hass_storage)
     assert hass_storage[STORAGE_KEY]["data"]["account_id"] == NEW_GROUP
     assert init_integration.state is ConfigEntryState.LOADED
+
+
+def refuse_old_devices(server: FakeServer, entry: MockConfigEntry) -> str:
+    """Reset sync in the app: the service refuses the entry's device, whatever the password."""
+    device = entry.data[CONF_DEVICE_UUID]
+    server.reset_devices.add(device)
+    server.account_id = NEW_GROUP
+    return device
+
+
+async def test_a_device_refused_after_a_reset_raises_the_repair_not_reauth(
+    hass: HomeAssistant, init_integration: MockConfigEntry, server: FakeServer
+) -> None:
+    refuse_old_devices(server, init_integration)
+
+    await tick(hass)
+
+    assert issue(hass) is not None
+    assert reauth_flows(hass) == []
+    assert hass.states.get(DIAPER).state == "unavailable"
+
+
+async def test_fixing_the_repair_joins_again_as_a_new_device(
+    hass: HomeAssistant, init_integration: MockConfigEntry, server: FakeServer
+) -> None:
+    old_device = refuse_old_devices(server, init_integration)
+    reset_sync(server, with_new_records=True)
+    await tick(hass)
+
+    result = await fix(hass)
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    new_device = init_integration.data[CONF_DEVICE_UUID]
+    assert new_device != old_device
+    assert new_device == new_device.upper()
+    assert server.sign_ins[-1]["device_uuid"] == new_device
+    assert init_integration.state is ConfigEntryState.LOADED
+    assert hass.states.get(NEW_GROUP_DIAPER).state != "unavailable"
+    assert issue(hass) is None
