@@ -240,6 +240,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
             # Nothing is sent: a client that met a new sync group refuses it until it's replaced.
             raise ConfigEntryError(translation_domain=DOMAIN, translation_key="account_changed")
         before = dict(self.engine.last_seen)
+        was_seeded = self.engine.seeded  # Core PR 27
         try:
             await self.engine.sync(self.client)
         except AuthenticationError as err:
@@ -259,6 +260,11 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
         finally:
             # Keep progress even when a later device failed.
             if dict(self.engine.last_seen) != before:
+                await self._async_save()
+            # Core PR 27
+            # Reading the account's seed adds its records without moving any log forward, and
+            # a sync that fails after reading it must still keep it.
+            if self.engine.seeded != was_seeded and dict(self.engine.last_seen) == before:
                 await self._async_save()
         # Core PR 27
         # A sync that went through means the account is in one sync group again.
