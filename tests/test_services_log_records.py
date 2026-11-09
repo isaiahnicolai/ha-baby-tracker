@@ -10,6 +10,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM, UnitSystem
 from pybabytracker import (
+    SIDE_LEFT,
+    SIDE_NONE,
+    SIDE_RIGHT,
     Formula,
     Nursing,
     Pumped,
@@ -56,10 +59,15 @@ async def test_log_bottle_writes_formula_or_pumped_by_kind(
     [
         ("log_bottle", {"kind": "formula", "amount": 120}, "amount"),
         ("log_bottle", {"kind": "pumped", "amount": 90}, "amount"),
-        ("log_pump", {"left_amount": 60, "right_amount": 75}, "leftAmount"),
-        ("log_pump", {"left_amount": 60}, "leftAmount"),
+        ("log_pump", {"left_amount": 60, "right_amount": 75}, "leftAmount"),  # Core PR 12
+        ("log_pump", {"left_amount": 60}, "leftAmount"),  # Core PR 12
     ],
-    ids=["formula", "pumped", "pump", "pump-one-side"],
+    ids=[
+        "formula",
+        "pumped",
+        "pump",  # Core PR 12
+        "pump-one-side",  # Core PR 12
+    ],
 )
 async def test_a_milliliter_write_is_accepted_and_sent_as_metric(
     hass: HomeAssistant,
@@ -145,8 +153,23 @@ async def test_log_nursing_with_only_one_side_writes_zero_for_the_other(
 
     record = only_record(server)
     assert isinstance(record, Nursing)
-    assert (record.left_duration, record.right_duration, record.finish_side) == (12, 0, 0)
+    assert (record.left_duration, record.right_duration, record.finish_side) == (12, 0, SIDE_LEFT)
     assert record.time.isoformat() == "2026-10-26T12:18:00+00:00"  # the start
+
+
+@pytest.mark.parametrize(("finish_side", "expected"), [(None, SIDE_NONE), ("left", SIDE_LEFT)])
+async def test_log_nursing_with_both_sides_writes_the_start_side_given_or_none(
+    finish_side: str | None,
+    expected: int,
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    server: FakeServer,
+) -> None:
+    side = {} if finish_side is None else {"finish_side": finish_side}
+    await call(hass, "log_nursing", left_minutes=5, right_minutes=6, **side)
+
+    # Which side came first can't be told from the minutes, so with none given there is none.
+    assert only_record(server).finish_side == expected
 
 
 async def test_log_nursing_without_an_end_time_ends_now(
@@ -161,7 +184,7 @@ async def test_log_nursing_without_an_end_time_ends_now(
 
     record = only_record(server)
     assert record.time.isoformat() == "2026-10-26T14:50:00+00:00"
-    assert record.finish_side == 1
+    assert record.finish_side == SIDE_RIGHT
 
 
 async def test_log_nursing_reads_a_naive_end_time_in_the_ha_zone(

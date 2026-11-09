@@ -74,7 +74,7 @@ The app has two more (app: `TransactionLogOpCode`). Neither was captured, and bo
 Captured on the test account on 2026-10-26, with the sync screen opened while each timer was running.
 
 - **Sleep timers sync while running.** Starting a sleep posts an **add** right away with `duration` 0 and `time` set to the start. Stopping it posts an **update** to the same `objectID` with the final `duration`. Each later edit, such as adding a note, posts another update. A sleep with `duration` 0 is therefore a sleep in progress.
-- **Nursing timers don't sync while running.** Nothing was posted when the timer started, when it switched from left to right, or while the sync screen was open. When the timer stopped, one **add** arrived with `leftDuration`, `rightDuration`, `finishSide` (the side the session started on, 1 = left, per the app's `NursingFinishSide` and its "start side" label; see [ha-baby-tracker#120](https://github.com/wtadler/ha-baby-tracker/issues/120) and [#123](https://github.com/wtadler/ha-baby-tracker/issues/123)), `isDetailed` "true", and `state` 5. That fits the absence of a "last synced" update during nursing. HA can't see a nursing timer running on a phone. It can only keep its own timer and write the finished entry at the stop.
+- **Nursing timers don't sync while running.** Nothing was posted when the timer started, when it switched from left to right, or while the sync screen was open. When the timer stopped, one **add** arrived with `leftDuration`, `rightDuration`, `finishSide` (0 = not set, 1 = left, 2 = right; the app labels the field as the side the session started on, see issue #123), `isDetailed` "true", and `state` 5. That fits the absence of a "last synced" update during nursing. HA can't see a nursing timer running on a phone. It can only keep its own timer and write the finished entry at the stop.
 - **Pump timers (assumed, not captured).** The app's pump timer wasn't captured. Real timed pumps carry equal `leftDuration` and `rightDuration` with `sides` 0, so Home Assistant keeps its own pump timer like the nursing one and writes the finished pump at the stop. A stop with no amount writes the durations and an `amount` of 0 (checked against the app's own database: every timed pump it saved without a volume has amount 0, never a missing value).
 - Durations are whole minutes. About 30 seconds per side was stored as 1.
 
@@ -95,8 +95,11 @@ Fields observed beyond the shared ones (`BCObjectType`, `objectID`, `time`, `tim
 | `Pumped` (a bottle of pumped milk) | `amount` |
 | `Pump` | `amount` (total), `leftAmount`, `rightAmount`, `leftDuration`, `rightDuration`, `finishSide`, `sides` (a timed pump with no volume carries `amount` 0; no `baby`: a pump belongs to the account, and `leftAmount` and `rightAmount` appear only when per-side amounts were entered) |
 | `Nursing` | `leftDuration`, `rightDuration`, `bothDuration`, `finishSide`, `isDetailed`, `pairSessionState`, `state` |
+| `NursingSession` (Android's timed nursing) | Everything `Nursing` has, plus `detailed`, `leftTimestamps`, and `rightTimestamps`. It counts as a nursing feed. |
 | `Sleep` | `duration` (minutes; 0 while running) |
 | `Diaper` | `status` (0 wet, 1 dirty, 2 mixed), `amount`, `peeColor`, `pooColor`, `texture`, `flag` |
+
+**Android's encoding.** Android sends numeric codes (`finishSide`, `status`, `state`) as digit strings such as `"1"`, where iOS sends ints, and sends `englishMeasure` as a boolean, where the iOS captures above show a string. Android's timed nursing syncs as `NursingSession`, not `Nursing`.
 
 **Metric volumes (observed 2026-10-26).** With the app set to metric, a 120 mL formula bottle was sent as `"amount": {"BCObjectType": "VolumeMeasure", "englishMeasure": "false", "value": 120}`. That's the number as entered, with no conversion, and `englishMeasure` is the string `"false"`; ounces use `"true"`. Pumps use the same object for `amount`, `leftAmount`, and `rightAmount`, though a metric pump wasn't captured separately. The app's unit is a global preference, not per entry.
 

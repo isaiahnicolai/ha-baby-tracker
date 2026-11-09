@@ -7,6 +7,7 @@ the checks that refuse bad input before anything is sent.
 """
 
 import logging
+import math  # Core PR 26
 import uuid
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
@@ -24,14 +25,17 @@ from pybabytracker import (
     DIAPER_WET,
     SIDE_LEFT,
     SIDE_RIGHT,
+    AmbiguousSelectionError,  # Core PR 26
     AmountTooSmallError,
     AuthenticationError,
     BabyTrackerClient,
     BabyTrackerError,
     EndBeforeStartError,
     InvalidAmountError,
+    InvalidSelectionNameError,  # Core PR 26
     MinutesTooLongError,
     NotOwnRecordError,
+    NoUsualDoseError,  # Core PR 26
     NursingTimer,
     ObjectIdInUseError,
     ProtocolError,
@@ -43,6 +47,7 @@ from pybabytracker import (
     SyncEngine,
     TimerNotRunningError,
     UnknownBabyError,
+    UnknownSelectionError,  # Core PR 26
     ValidationError,
     Volume,
     WriteOutcomeUnknownError,
@@ -89,6 +94,9 @@ VALIDATION_KEYS: dict[type[ValidationError], str] = {
     EndBeforeStartError: "end_before_start",
     SleepTooLongError: "sleep_too_long",
     SleepStartOutOfRangeError: "sleep_start_out_of_range",
+    InvalidSelectionNameError: "invalid_selection_name",  # Core PR 26
+    AmbiguousSelectionError: "ambiguous_selection",  # Core PR 26
+    NoUsualDoseError: "no_usual_dose",  # Core PR 26
 }
 
 
@@ -211,6 +219,16 @@ def _checked_minutes(*minutes: int) -> None:
         check_minutes(*minutes)
 
 
+# The note on every record Home Assistant writes without one of its own, so the app's log shows
+# where an entry came from.
+DEFAULT_NOTE = "Added from Home Assistant"
+
+
+def _note(note: str) -> str:
+    """Return the note to write: the caller's, or the default when it's empty or only spaces."""
+    return note if note.strip() else DEFAULT_NOTE
+
+
 async def _add(
     coordinator: BabyTrackerCoordinator,
     object_id: str | None,
@@ -256,9 +274,69 @@ async def async_log_diaper(
             DIAPER_STATUS[kind],
             time=moment,
             timezone_offset=offset,
-            note=note,
+            note=_note(note),
             object_id=object_id,
         )
+
+    await _add(coordinator, object_id, add)
+
+
+# Core PR 26
+async def async_log_medicine(
+    coordinator: BabyTrackerCoordinator,
+    baby_id: str,
+    medicine: str,
+    *,
+    amount: float | None = None,
+    time: datetime | None = None,
+    note: str = "",
+    object_id: str | None = None,
+) -> None:
+    """Add a dose of a medicine the account has used, of ``amount`` (default its usual dose).
+
+    The medicine is looked up by the library inside the write, after the sync that precedes it, so
+    one first given on a phone since the last poll is found. Each library refusal is translated.
+    """
+    if amount is not None and not (math.isfinite(amount) and round(amount, 2) > 0):
+        raise validation_error("invalid_amount")
+    moment, offset = _in_home_assistant_time(time)
+
+    async def add(engine: SyncEngine, client: BabyTrackerClient, object_id: str | None) -> object:
+        try:
+            return await engine.add_medication(
+                client,
+                baby_id,
+                medicine,
+                amount=amount,
+                time=moment,
+                timezone_offset=offset,
+                note=_note(note),
+                object_id=object_id,
+            )
+        except ObjectIdInUseError:
+            raise
+        except UnknownSelectionError as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_medicine",
+                translation_placeholders={"medicine": medicine},
+            ) from err
+        except AmbiguousSelectionError as err:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="ambiguous_selection",
+                translation_placeholders={
+                    "medicine": medicine,
+                    "ids": ", ".join(err.object_ids),
+                },
+            ) from err
+        except ValidationError as err:
+            raise validation_error(VALIDATION_KEYS[type(err)]) from err
+        except ValueError as err:
+            # The amount check above covers every bad amount, so what's left is not about the
+            # amount (the engine can't write, a time without a zone): a write error, as for any
+            # other refusal the library makes after the checks.
+            raise _error("write_failed", error=str(err)) from err
 
     await _add(coordinator, object_id, add)
 
@@ -292,7 +370,7 @@ async def async_log_bottle(
             volume=volume,
             time=moment,
             timezone_offset=offset,
-            note=note,
+            note=_note(note),
             object_id=object_id,
         )
 
@@ -319,7 +397,8 @@ async def async_log_nursing(
     """Add a finished nursing session.
 
     The record starts ``left + right`` minutes before ``end_time`` (default now);
-    ``finish_side`` (left or right) defaults to the last side used.
+    ``finish_side`` (left or right) is the side the session started on, which the app shows as
+    its start side. It defaults to the only side used, or no side when both were.
     """
     if left_minutes + right_minutes <= 0:
         raise validation_error("no_duration")
@@ -337,7 +416,7 @@ async def async_log_nursing(
             finish_side=FINISH_SIDES[finish_side] if finish_side is not None else None,
             end_time=moment,
             timezone_offset=offset,
-            note=note,
+            note=_note(note),
             object_id=object_id,
         )
 
@@ -369,7 +448,7 @@ async def async_log_sleep(
             start=begin,
             end=finish,
             timezone_offset=offset,
-            note=note,
+            note=_note(note),
             object_id=object_id,
         )
 
@@ -433,7 +512,7 @@ async def async_log_pump(
             finish_side=FINISH_SIDES[finish_side] if finish_side is not None else None,
             time=moment,
             timezone_offset=offset,
-            note=note,
+            note=_note(note),
             object_id=object_id,
         )
 
@@ -473,7 +552,12 @@ async def async_start_sleep(
         if running is not None and running.object_id != object_id:
             raise validation_error("sleep_already_running")
         return await engine.start_sleep(
-            client, baby_id, start=begin, timezone_offset=offset, note=note, object_id=object_id
+            client,
+            baby_id,
+            start=begin,
+            timezone_offset=offset,
+            note=_note(note),
+            object_id=object_id,
         )
 
     await _add(coordinator, object_id, add)
@@ -547,7 +631,7 @@ async def async_stop_nursing(
 ) -> None:
     """Stop the nursing timer and write one finished record.
 
-    The record has whole minutes per side, the side it ended on, and the start time. The minutes
+    The record has whole minutes per side, the side it started on, and the start time. The minutes
     count to when the lock is acquired. The timer is cleared only once the write succeeds, and
     the record's ID was fixed at the start, so stopping again after an error can't write twice.
     """
@@ -570,10 +654,10 @@ async def _stop_nursing_locked(
             baby_id,
             left_minutes=left,
             right_minutes=right,
-            finish_side=FINISH_SIDES[timer.side],
+            finish_side=FINISH_SIDES[timer.start_side],
             start_time=start,
             timezone_offset=offset,
-            note=note,
+            note=_note(note),
             object_id=object_id,
         )
 
@@ -658,7 +742,7 @@ async def async_stop_pump(
                 right_minutes=length,
                 time=start,
                 timezone_offset=offset,
-                note=note,
+                note=_note(note),
                 object_id=object_id,
             )
 

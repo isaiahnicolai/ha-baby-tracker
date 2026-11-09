@@ -5,6 +5,7 @@ import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import ConfigEntryState  # HACS-only
 from homeassistant.core import HomeAssistant
+from pybabytracker import SIDE_RIGHT
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
 )
@@ -144,7 +145,7 @@ async def test_a_nursing_feed_shows_sides_and_durations(
         leftDuration=7,
         rightDuration=12,
         bothDuration=0,
-        finishSide=1,
+        finishSide=SIDE_RIGHT,
         note="sleepy",
     )
     await tick(hass)

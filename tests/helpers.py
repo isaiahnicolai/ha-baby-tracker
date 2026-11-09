@@ -1,8 +1,8 @@
 """Small helpers shared by the test modules."""
 
-import json
+import json  # HACS-only
 from datetime import datetime, timedelta
-from pathlib import Path
+from pathlib import Path  # HACS-only
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -30,15 +30,16 @@ from custom_components.baby_tracker.const import CONF_DEVICE_UUID, DOMAIN
 
 from . import BABY_ONE, EMAIL, NOW, PASSWORD, get_baby_device, tick
 from .factories import (
-    BABY_ONE_ID,
+    BABY_ONE_ID,  # Core PR 9
     DEVICE_A,
     OP_UPDATE,
     record_payload,
 )
 from .fake_server import FakeServer
 
+# HACS-only: the repository layout, for the metadata tests
 ROOT = Path(__file__).resolve().parent.parent
-INTEGRATION = ROOT / "custom_components" / "baby_tracker"
+INTEGRATION = ROOT / "custom_components" / "baby_tracker"  # HACS-only
 
 OTHER_DEVICES_RECORD = "D0000000-0000-4000-8000-000000000001"  # baby one's diaper from device A
 
@@ -72,11 +73,13 @@ def device_id(hass: HomeAssistant, baby_id: str) -> str:
     return device.id
 
 
+# Core PR 9
 async def log_diaper(hass: HomeAssistant, baby_id: str, kind: str = "wet", **extra: Any) -> None:
     data = {"device_id": device_id(hass, baby_id), "type": kind, **extra}
     await hass.services.async_call(DOMAIN, "log_diaper", data, blocking=True)
 
 
+# Core PR 13
 async def undo(hass: HomeAssistant, **data: Any) -> None:
     await hass.services.async_call(DOMAIN, "undo", data, blocking=True)
 
@@ -115,12 +118,19 @@ def account_device(hass: HomeAssistant, entry: MockConfigEntry) -> dr.DeviceEntr
     return device
 
 
+# Core PR 12
 # The actions that name the account (a pump belongs to it), not a baby.
-ACCOUNT_ACTIONS = ("log_pump", "start_pump", "stop_pump")
+ACCOUNT_ACTIONS = (
+    "log_pump",
+    "start_pump",  # Core PR 21
+    "stop_pump",  # Core PR 21
+)
 
 
+# Core PR 9
 async def call(hass: HomeAssistant, action: str, baby_id: str = BABY_ONE_ID, **data: Any) -> None:
     """Call one of the integration's actions for a baby (a pump names its account instead)."""
+    # Core PR 12
     if action in ACCOUNT_ACTIONS:
         # A pump belongs to the account: it names the account, not a baby.
         [entry, *_] = hass.config_entries.async_entries(DOMAIN)
@@ -173,6 +183,7 @@ async def pass_midnight(
     await hass.async_block_till_done()
 
 
+# Core PR 12
 async def log_pump(hass: HomeAssistant, **data: Any) -> None:
     await hass.services.async_call(DOMAIN, "log_pump", data, blocking=True)
 
@@ -289,23 +300,35 @@ def only_record(server: FakeServer) -> Any:
     return record
 
 
+# Core PR 10
+AN_HOURS_SLEEP = {"start": "2026-10-26T13:00:00+00:00", "end": "2026-10-26T14:00:00+00:00"}
+
 # Every baby action, the data it needs besides the baby, and whether a timer must already run.
 BABY_ACTIONS: dict[str, tuple[dict[str, Any], str | None]] = {
     "log_diaper": ({"type": "wet"}, None),
-    "log_bottle": ({"kind": "formula", "amount": 4}, None),
-    "log_nursing": ({"left_minutes": 5}, None),
-    "log_sleep": ({"start": "2026-10-26T13:00:00+00:00", "end": "2026-10-26T14:00:00+00:00"}, None),
-    "start_sleep": ({}, None),
-    "stop_sleep": ({}, "switch.baby_one_sleep"),
-    "start_nursing": ({"side": "left"}, None),
-    "switch_nursing_side": ({}, "switch.baby_one_nursing_left"),
-    "stop_nursing": ({}, "switch.baby_one_nursing_left"),
-    "discard_nursing": ({}, "switch.baby_one_nursing_left"),
+    "log_bottle": ({"kind": "formula", "amount": 4}, None),  # Core PR 10
+    "log_nursing": ({"left_minutes": 5}, None),  # Core PR 10
+    "log_sleep": (AN_HOURS_SLEEP, None),  # Core PR 10
+    "start_sleep": ({}, None),  # Core PR 16
+    "stop_sleep": ({}, "switch.baby_one_sleep"),  # Core PR 16
+    "start_nursing": ({"side": "left"}, None),  # Core PR 18
+    "switch_nursing_side": ({}, "switch.baby_one_nursing_left"),  # Core PR 18
+    "stop_nursing": ({}, "switch.baby_one_nursing_left"),  # Core PR 18
+    "discard_nursing": ({}, "switch.baby_one_nursing_left"),  # Core PR 18
 }
 
 ACTION_IDS = list(BABY_ACTIONS)
 
-ALL_ACTIONS = [*BABY_ACTIONS, "log_pump", "start_pump", "stop_pump", "undo"]
+ALL_ACTIONS = [
+    *BABY_ACTIONS,
+    "log_pump",  # Core PR 12
+    "start_pump",  # Core PR 21
+    "stop_pump",  # Core PR 21
+    "undo",  # Core PR 13
+]
+# Core PR 26
+# A dose needs a medicine the account has used, so log_medicine has its own tests.
+ALL_ACTIONS.append("log_medicine")
 
 
 # A ``scan_interval`` option in a saved entry is not a setting, so these tests spell it out.
@@ -350,4 +373,5 @@ async def entry_with_options(hass: HomeAssistant, options: dict[str, Any]) -> Mo
 
 
 def load_integration_json(name: str) -> Any:
+    """HACS-only: read one of the integration's JSON files."""
     return json.loads((INTEGRATION / name).read_text())

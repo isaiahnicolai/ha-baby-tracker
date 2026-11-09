@@ -112,6 +112,7 @@ def test_services_yaml_describes_the_diaper_and_undo_actions_and_their_fields() 
         "switch_nursing_side",
         "stop_nursing",
         "discard_nursing",
+        "log_medicine",
     }
     assert set(services["log_diaper"]["fields"]) == {
         "device_id",
@@ -199,8 +200,17 @@ def test_services_yaml_describes_the_new_actions_and_their_fields() -> None:
         "switch_nursing_side",
         "stop_nursing",
         "discard_nursing",
+        "log_medicine",
     }
     fields = {name: set(spec["fields"]) for name, spec in services.items()}
+    assert fields["log_medicine"] == {
+        "device_id",
+        "medicine",
+        "amount",
+        "time",
+        "note",
+        "object_id",
+    }
     assert fields["log_bottle"] == {
         "device_id",
         "kind",
@@ -500,15 +510,26 @@ def test_every_sensor_has_a_translated_name() -> None:
         "diapers_today": "Diapers today",
         "feeds_today": "Feeds today",
         "bottle_volume_today": "Bottle volume today",
+        "nursing_minutes_today": "Nursing minutes today",
+        "last_breast": "Last breast",
         "last_diaper": "Last diaper",
         "last_feed": "Last feed",
         "last_pump": "Last pump",
         "last_sleep": "Last sleep",
+        "last_nursing": "Last nursing",
+        "last_nursing_duration": "Last nursing duration",
+        "last_nursing_left_time": "Last nursing left time",
+        "last_nursing_right_time": "Last nursing right time",
+        "last_sleep_duration": "Last sleep duration",
         "sleep_timer": "Sleep timer",
         "nursing_timer": "Nursing timer",
         "nursing_left_time": "Nursing left time",
         "nursing_right_time": "Nursing right time",
         "pump_timer": "Pump timer",
+        "last_milestone": "Last milestone",
+        "last_vaccine": "Last vaccine",
+        "last_medicine": "Last medicine",
+        "next_medicine_dose": "Next medicine dose",
     }
 
 

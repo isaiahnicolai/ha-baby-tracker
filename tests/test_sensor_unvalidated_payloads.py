@@ -22,11 +22,11 @@ def test_a_note_that_is_not_a_string_reads_as_no_note(note: Any) -> None:
     assert _feed_attributes(Nursing(object_id=OBJECT_ID, note=note))["note"] is None
 
 
-@pytest.mark.parametrize("code", [["x"], {"a": 1}, "0", 1.5])
-def test_a_diaper_status_that_is_not_an_int_reads_as_no_type(code: Any) -> None:
+@pytest.mark.parametrize("code", [["x"], {"a": 1}, "x", "", " 1", "-1", True, 1.5])
+def test_a_diaper_status_that_is_not_a_code_reads_as_no_type(code: Any) -> None:
     assert _diaper_attributes(Diaper(object_id=OBJECT_ID, status=code))["type"] is None
 
 
-@pytest.mark.parametrize("code", [["x"], {"a": 1}, "0", 1.5])
-def test_a_finish_side_that_is_not_an_int_reads_as_no_side(code: Any) -> None:
+@pytest.mark.parametrize("code", [["x"], {"a": 1}, "x", "", " 1", "-1", True, 1.5])
+def test_a_finish_side_that_is_not_a_code_reads_as_no_side(code: Any) -> None:
     assert _feed_attributes(Nursing(object_id=OBJECT_ID, finish_side=code))["finish_side"] is None

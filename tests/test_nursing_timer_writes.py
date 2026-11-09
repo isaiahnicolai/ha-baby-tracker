@@ -12,6 +12,8 @@ from homeassistant.helpers.storage import Store
 from pybabytracker import (
     OP_ADD,
     OP_DELETE,
+    SIDE_LEFT,
+    SIDE_RIGHT,
     BabyTrackerConnectionError,
     Nursing,
 )
@@ -52,7 +54,7 @@ def _start_at_now(freezer: FrozenDateTimeFactory) -> None:
     freezer.move_to(NOW)
 
 
-async def test_nurse_left_then_right_then_right_writes_both_sides_and_finish_side_right(
+async def test_nurse_left_then_right_then_right_writes_both_sides_and_the_start_side_left(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     server: FakeServer,
@@ -63,7 +65,8 @@ async def test_nurse_left_then_right_then_right_writes_both_sides_and_finish_sid
     [record] = nursing_posts(server)
     assert record.left_duration == 5
     assert record.right_duration == 7
-    assert record.finish_side == 1
+    # The app shows a nursing's side as the side it started on.
+    assert record.finish_side == SIDE_LEFT
     assert record.time == NOW
     assert record.state == 5
     assert record.baby.object_id == BABY_ONE_ID
@@ -91,7 +94,7 @@ async def test_pressing_the_running_side_again_stops_with_only_that_side(
     await nurse(hass, freezer, (0, "right"), (9, "right"))
 
     [record] = nursing_posts(server)
-    assert (record.left_duration, record.right_duration, record.finish_side) == (0, 9, 1)
+    assert (record.left_duration, record.right_duration, record.finish_side) == (0, 9, SIDE_RIGHT)
 
 
 async def test_switching_sides_several_times_adds_up_each_side(
@@ -104,11 +107,11 @@ async def test_switching_sides_several_times_adds_up_each_side(
 
     [record] = nursing_posts(server)
     assert (record.left_duration, record.right_duration) == (6, 4)
-    assert record.finish_side == 1
+    assert record.finish_side == SIDE_LEFT
     assert record.time == NOW
 
 
-async def test_ending_on_the_left_sets_finish_side_left(
+async def test_a_session_started_right_and_ended_left_records_right(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
     server: FakeServer,
@@ -117,7 +120,7 @@ async def test_ending_on_the_left_sets_finish_side_left(
     await nurse(hass, freezer, (0, "right"), (4, "left"), (6, "left"))
 
     [record] = nursing_posts(server)
-    assert (record.left_duration, record.right_duration, record.finish_side) == (2, 4, 0)
+    assert (record.left_duration, record.right_duration, record.finish_side) == (2, 4, SIDE_RIGHT)
 
 
 async def test_the_nursing_timer_sensor_shows_start_side_and_seconds(
@@ -150,7 +153,7 @@ async def test_stopping_under_30_seconds_writes_one_minute_on_that_side(
     await nurse(hass, freezer, (0, "left"), (0.25, "left"))
 
     [record] = nursing_posts(server)
-    assert (record.left_duration, record.right_duration, record.finish_side) == (1, 0, 0)
+    assert (record.left_duration, record.right_duration, record.finish_side) == (1, 0, SIDE_LEFT)
 
 
 async def test_each_side_rounds_to_whole_minutes_half_up(
@@ -174,8 +177,9 @@ async def test_a_short_first_side_rounds_to_zero_but_still_counts_the_other(
 ) -> None:
     await nurse(hass, freezer, (0, "left"), (0.25, "right"), (10.25, "right"))
 
+    # It still started on the left, which the app records as its side.
     [record] = nursing_posts(server)
-    assert (record.left_duration, record.right_duration, record.finish_side) == (0, 10, 1)
+    assert (record.left_duration, record.right_duration, record.finish_side) == (0, 10, SIDE_LEFT)
 
 
 async def test_a_forgotten_nursing_timer_clamps_each_side_to_240_minutes(

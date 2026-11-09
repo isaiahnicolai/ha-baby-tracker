@@ -145,8 +145,116 @@
       "nursing_right_time": {
         "name": "Nursing right time"
       },
+      "last_nursing": {
+        "name": "Last nursing"
+      },
+      "last_nursing_duration": {
+        "name": "Last nursing duration"
+      },
+      "last_nursing_left_time": {
+        "name": "Last nursing left time"
+      },
+      "last_nursing_right_time": {
+        "name": "Last nursing right time"
+      },
+      "last_sleep_duration": {
+        "name": "Last sleep duration"
+      },
       "pump_timer": {
         "name": "Pump timer"
+      },
+      "nursing_minutes_today": {
+        "name": "Nursing minutes today",
+        "state_attributes": {
+          "nursings": {
+            "name": "Nursings"
+          }
+        }
+      },
+      "last_breast": {
+        "name": "Last breast",
+        "state": {
+          "left": "Started left",
+          "right": "Started right",
+          "none": "No side"
+        },
+        "state_attributes": {
+          "kind": {
+            "name": "Kind",
+            "state": {
+              "nursing": "Nursing",
+              "pump": "Pump"
+            }
+          },
+          "time": {
+            "name": "Time"
+          }
+        }
+      },
+      "last_milestone": {
+        "name": "Last milestone",
+        "state_attributes": {
+          "time": {
+            "name": "Time"
+          },
+          "description": {
+            "name": "Description"
+          },
+          "milestone_id": {
+            "name": "Milestone ID"
+          },
+          "note": {
+            "name": "Note"
+          }
+        }
+      },
+      "last_vaccine": {
+        "name": "Last vaccine",
+        "state_attributes": {
+          "time": {
+            "name": "Time"
+          },
+          "description": {
+            "name": "Description"
+          },
+          "vaccine_id": {
+            "name": "Vaccine ID"
+          },
+          "note": {
+            "name": "Note"
+          }
+        }
+      },
+      "last_medicine": {
+        "name": "Last medicine",
+        "state_attributes": {
+          "time": {
+            "name": "Time"
+          },
+          "amount": {
+            "name": "Amount"
+          },
+          "unit": {
+            "name": "Unit"
+          },
+          "medicine_id": {
+            "name": "Medicine ID"
+          },
+          "note": {
+            "name": "Note"
+          }
+        }
+      },
+      "next_medicine_dose": {
+        "name": "Next medicine dose",
+        "state_attributes": {
+          "medicine": {
+            "name": "Medicine"
+          },
+          "medicines": {
+            "name": "Next dose by medicine"
+          }
+        }
       }
     },
     "switch": {
@@ -161,6 +269,25 @@
       },
       "pump": {
         "name": "Pump timer"
+      }
+    },
+    "image": {
+      "latest_picture": {
+        "name": "Latest picture",
+        "state_attributes": {
+          "record_id": {
+            "name": "Entry ID"
+          },
+          "record_type": {
+            "name": "Entry type"
+          },
+          "time": {
+            "name": "Time"
+          }
+        }
+      },
+      "photo": {
+        "name": "Photo"
       }
     }
   },
@@ -260,8 +387,8 @@
           "description": "Whole minutes on the right side."
         },
         "finish_side": {
-          "name": "Finished on",
-          "description": "The side the session ended on. Defaults to the last side used, or right when both were."
+          "name": "Start side",
+          "description": "The side the session started on, which the app shows as its start side. Defaults to the only side used, or no side when both were."
         },
         "end_time": {
           "name": "End time",
@@ -340,8 +467,8 @@
           "description": "Whole minutes on the right side."
         },
         "finish_side": {
-          "name": "Finished on",
-          "description": "The side the session ended on. Defaults to the last side used, or right when both were."
+          "name": "Side",
+          "description": "The side to record for the session. Defaults to the only side used, or no side when both were, as the app saves most two-sided pumps."
         },
         "time": {
           "name": "Start time",
@@ -419,7 +546,7 @@
     },
     "stop_nursing": {
       "name": "Stop nursing",
-      "description": "Stops the nursing timer and saves one nursing record with each side's minutes, the side it ended on, and the start time.",
+      "description": "Stops the nursing timer and saves one nursing record with each side's minutes, the side it started on, and the start time.",
       "fields": {
         "device_id": {
           "name": "Baby",
@@ -470,6 +597,36 @@
         "note": {
           "name": "Note",
           "description": "An optional note to save with the pump."
+        }
+      }
+    },
+    "log_medicine": {
+      "name": "Log medicine",
+      "description": "Adds a dose of a medicine a baby was given, as Home Assistant's own device in the Baby Tracker account.",
+      "fields": {
+        "device_id": {
+          "name": "Baby",
+          "description": "The baby's device."
+        },
+        "time": {
+          "name": "Time",
+          "description": "When it happened. Defaults to now. A time without an offset is read in Home Assistant's time zone."
+        },
+        "note": {
+          "name": "Note",
+          "description": "An optional note to save with the dose."
+        },
+        "object_id": {
+          "name": "Record ID",
+          "description": "A UUID you choose. Reuse the same one to retry safely: if a write with this ID already landed, nothing is added again. Leave it empty for a new dose each time."
+        },
+        "medicine": {
+          "name": "Medicine",
+          "description": "The medicine's name as the app shows it. It must be one the account has used or added in the app."
+        },
+        "amount": {
+          "name": "Amount",
+          "description": "How much was given, in the medicine's own unit. Defaults to its usual dose."
         }
       }
     }
@@ -577,6 +734,15 @@
     "sleep_start_out_of_range": {
       "message": "A sleep can't start in the future or more than 24 hours ago."
     },
+    "invalid_selection_name": {
+      "message": "Give the name or the ID of an entry."
+    },
+    "ambiguous_selection": {
+      "message": "More than one {medicine} is on the account. Use the ID of the one you mean: {ids}"
+    },
+    "no_usual_dose": {
+      "message": "This medicine has no usual dose, so give an amount."
+    },
     "not_a_sleep": {
       "message": "That record isn't a sleep, so it has no timer to stop."
     },
@@ -600,6 +766,9 @@
     },
     "minutes_with_sides": {
       "message": "Give the minutes or the minutes for each side, not both."
+    },
+    "unknown_medicine": {
+      "message": "Medicine {medicine} isn't one the account has used or added in the app. Check the name as the app shows it."
     }
   },
   "issues": {
