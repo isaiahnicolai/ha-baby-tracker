@@ -62,9 +62,9 @@ def is_account_identifier(identifier: str) -> bool:
     return identifier.endswith(ACCOUNT_SUFFIX)
 
 
-CONF_BOTTLE_SIZE = "bottle_size"  # Core PR 15
-CONF_BOTTLE_UNIT = "bottle_unit"  # Core PR 15
-CONF_BOTTLE_TYPE = "bottle_type"  # Core PR 15
+CONF_BOTTLE_SIZE = "bottle_size"  # Core PR 9
+CONF_BOTTLE_UNIT = "bottle_unit"  # Core PR 9
+CONF_BOTTLE_TYPE = "bottle_type"  # Core PR 9
 
 
 # Core PR 9
@@ -72,17 +72,17 @@ class BabyTrackerService(StrEnum):
     """The names of the integration's actions."""
 
     LOG_DIAPER = "log_diaper"
-    LOG_BOTTLE = "log_bottle"
-    LOG_NURSING = "log_nursing"
-    LOG_SLEEP = "log_sleep"
-    LOG_PUMP = "log_pump"
-    START_PUMP = "start_pump"
-    STOP_PUMP = "stop_pump"
-    UNDO = "undo"
-    START_SLEEP = "start_sleep"
-    STOP_SLEEP = "stop_sleep"
-    START_NURSING = "start_nursing"
-    SWITCH_NURSING_SIDE = "switch_nursing_side"
-    STOP_NURSING = "stop_nursing"
-    DISCARD_NURSING = "discard_nursing"
+    LOG_BOTTLE = "log_bottle"  # Core PR 10
+    LOG_NURSING = "log_nursing"  # Core PR 10
+    LOG_SLEEP = "log_sleep"  # Core PR 10
+    LOG_PUMP = "log_pump"  # Core PR 12
+    START_PUMP = "start_pump"  # Core PR 21
+    STOP_PUMP = "stop_pump"  # Core PR 21
+    UNDO = "undo"  # Core PR 13
+    START_SLEEP = "start_sleep"  # Core PR 16
+    STOP_SLEEP = "stop_sleep"  # Core PR 16
+    START_NURSING = "start_nursing"  # Core PR 18
+    SWITCH_NURSING_SIDE = "switch_nursing_side"  # Core PR 18
+    STOP_NURSING = "stop_nursing"  # Core PR 18
+    DISCARD_NURSING = "discard_nursing"  # Core PR 18
     LOG_MEDICINE = "log_medicine"  # Core PR 26
