@@ -67,6 +67,7 @@ from pybabytracker.validation import (
 from .bottle import BOTTLE_KINDS, OUNCES, VOLUME_UNITS, configured_bottle
 from .const import DOMAIN
 from .coordinator import BabyTrackerCoordinator, SyncBeforeWriteError
+from .sync_group import refuse_if_group_changed, stop_for_group_change  # Core PR 27
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -181,6 +182,8 @@ async def _write[T](
         _LOGGER.error("This device's own log can't be caught up: %s", err)
         raise _own_log_gap(coordinator) from err
     except BabyTrackerError as err:
+        if stop_for_group_change(coordinator, err):  # Core PR 27
+            raise _error("account_changed") from err
         raise _error("write_failed", error=str(err)) from err
     forget_gap(coordinator.hass, coordinator.config_entry.entry_id)
     return result
@@ -598,6 +601,7 @@ async def async_start_nursing(coordinator: BabyTrackerCoordinator, baby_id: str,
     if side not in SIDES:
         raise validation_error("invalid_finish_side")
     async with coordinator.exclusive():
+        refuse_if_group_changed(coordinator)  # Core PR 27
         await _start_nursing_locked(coordinator, baby_id, side)
 
 
@@ -618,6 +622,7 @@ async def _start_nursing_locked(
 async def async_switch_nursing_side(coordinator: BabyTrackerCoordinator, baby_id: str) -> None:
     """Move the running nursing timer to the other side, keeping the time on the first."""
     async with coordinator.exclusive():
+        refuse_if_group_changed(coordinator)  # Core PR 27
         timer = coordinator.timers.nursing.get(baby_id)
         if timer is None:
             raise validation_error("no_nursing_timer")
@@ -672,6 +677,7 @@ async def async_discard_nursing(coordinator: BabyTrackerCoordinator, baby_id: st
     so a stop already writing finishes first and this then finds no timer. It never syncs or posts.
     """
     async with coordinator.exclusive():
+        refuse_if_group_changed(coordinator)  # Core PR 27
         if coordinator.timers.nursing.get(baby_id) is None:
             raise validation_error("no_nursing_timer")
         await coordinator.timers.async_set_nursing(baby_id, None)
@@ -697,6 +703,7 @@ async def async_start_pump(coordinator: BabyTrackerCoordinator) -> None:
     Refused while it's running. Like every timer change, it holds the coordinator's lock.
     """
     async with coordinator.exclusive():
+        refuse_if_group_changed(coordinator)  # Core PR 27
         if coordinator.timers.pump is not None:
             raise validation_error("pump_already_running")
         await coordinator.timers.async_set_pump(PumpTimer.start(_new_id(), dt_util.utcnow()))

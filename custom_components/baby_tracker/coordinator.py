@@ -15,6 +15,7 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
+    ConfigEntryError,  # Core PR 27
     HomeAssistantError,
 )
 from homeassistant.helpers import device_registry as dr  # Core PR 6
@@ -54,6 +55,11 @@ from .pictures import (  # Core PR 23
     AttachedPicture,
     PictureCache,
     newest_attached_picture,
+)
+from .sync_group import (  # Core PR 27
+    forget_group_change,
+    refuse_if_group_changed,
+    stop_for_group_change,
 )
 from .timer_state import TimerState  # Core PR 18
 
@@ -197,6 +203,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
         )
         self._baby_names: dict[str, str | None] = {}
         self.lock = asyncio.Lock()
+        self.group_changed = False  # Core PR 27
         self.timers = TimerState(hass, entry, self._publish)  # Core PR 18
         self.guard = TimerGuard(hass, entry, self.timers, self._async_republish)  # Core PR 18
 
@@ -229,6 +236,9 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
             return await self._async_sync()
 
     async def _async_sync(self) -> BabyTrackerData:
+        if self.group_changed:  # Core PR 27
+            # Nothing is sent: a client that met a new sync group refuses it until it's replaced.
+            raise ConfigEntryError(translation_domain=DOMAIN, translation_key="account_changed")
         before = dict(self.engine.last_seen)
         try:
             await self.engine.sync(self.client)
@@ -237,6 +247,10 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
                 translation_domain=DOMAIN, translation_key="auth_failed"
             ) from err
         except BabyTrackerError as err:
+            if stop_for_group_change(self, err):  # Core PR 27
+                raise ConfigEntryError(
+                    translation_domain=DOMAIN, translation_key="account_changed"
+                ) from err
             raise UpdateFailed(
                 translation_domain=DOMAIN,
                 translation_key="sync_failed_update",
@@ -246,6 +260,9 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
             # Keep progress even when a later device failed.
             if dict(self.engine.last_seen) != before:
                 await self._async_save()
+        # Core PR 27
+        # A sync that went through means the account is in one sync group again.
+        forget_group_change(self.hass, self.config_entry.entry_id)
         return self._rebuild()
 
     async def _async_save(self) -> None:
@@ -437,12 +454,17 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
     async def _async_write_locked[T](
         self, operation: Callable[[SyncEngine, BabyTrackerClient], Awaitable[T]]
     ) -> T:
+        refuse_if_group_changed(self)  # Core PR 27
         try:
             try:
                 await self.engine.sync(self.client)
             except AuthenticationError:
                 raise
             except BabyTrackerError as err:
+                if stop_for_group_change(self, err):  # Core PR 27
+                    raise HomeAssistantError(
+                        translation_domain=DOMAIN, translation_key="account_changed"
+                    ) from err
                 raise SyncBeforeWriteError(str(err)) from err
             try:
                 result = await operation(self.engine, self.client)
