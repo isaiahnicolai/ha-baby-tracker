@@ -1397,6 +1397,556 @@ def test_the_action_check_follows_parametrize_and_tables_to_the_action() -> None
     ]
 
 
+def _platform_modules() -> set[str]:
+    """The platforms the repository sets up: the members of ``PLATFORMS`` in __init__.py."""
+    for node in ast.parse((INTEGRATION / "__init__.py").read_text()).body:
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == "PLATFORMS"
+            and isinstance(node.value, ast.List)
+        ):
+            return {
+                item.attr.lower() for item in node.value.elts if isinstance(item, ast.Attribute)
+            }
+    raise AssertionError("__init__.py has no PLATFORMS list of Platform members")
+
+
+def _service_call_domain(node: ast.AST) -> ast.expr | None:
+    """The domain a ``hass.services.async_call`` (or ``call``) names, else None."""
+    if not (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"async_call", "call"}
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "services"
+    ):
+        return None
+    keywords = {k.arg: k.value for k in node.keywords if k.arg}
+    return node.args[0] if node.args else keywords.get("domain")
+
+
+def _repository_tests() -> dict[Path, str]:
+    """Every test module of the repository as it is written, by its path in a core cut."""
+    return {
+        TESTS / path.relative_to(ROOT / "tests"): path.read_text()
+        for path in sorted((ROOT / "tests").glob("*.py"))
+    }
+
+
+def _platforms_used(files: dict[Path, str], written: dict[Path, str] | None = None) -> list[str]:
+    """Where a test of the cut works on a platform the cut doesn't have.
+
+    A test works on a platform when it calls one of the platform's actions (``button.press``,
+    ``switch.turn_on``) through ``hass.services``, by the platform's name as a string. A helper
+    that does so, or that uses a helper that does so (to any depth, called or passed on), counts
+    too, at its definition and at every use of it. A helper that takes the domain as a parameter
+    counts at the calls that name a platform for it. The platforms are the repository's own, so
+    the calls to ``homeassistant`` or to another integration aren't looked at, and a platform is
+    in the cut when its module is.
+
+    ``written`` is the tests as they are written, before the cut. A helper the cut leaves out is
+    still known by what it needs, so a test that calls it anyway counts too.
+    """
+    platforms = _platform_modules()
+    missing = {name for name in platforms if COMPONENT / f"{name}.py" not in files}
+    functions = [function for found in _test_functions(files).values() for function in found]
+    kept = {function.name for function in functions}
+    # What the cut dropped is still looked up by name, after what it kept.
+    functions += [
+        function
+        for found in _test_functions(written or {}).values()
+        for function in found
+        if function.name not in kept
+    ]
+
+    def literal(node: ast.expr | None) -> str | None:
+        ok = isinstance(node, ast.Constant) and isinstance(node.value, str)
+        return node.value if ok and node.value in platforms else None  # type: ignore[union-attr]
+
+    def parameters(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+        args = function.args
+        return [arg.arg for arg in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
+
+    # The helpers that pass a parameter on as the domain: name -> the parameter's name.
+    domain_parameter: dict[str, str] = {}
+    for function in functions:
+        for node in ast.walk(function):
+            domain = _service_call_domain(node)
+            if isinstance(domain, ast.Name) and domain.id in parameters(function):
+                domain_parameter[function.name] = domain.id
+
+    def named_platform(node: ast.Call, helper: str) -> str | None:
+        name = domain_parameter[helper]
+        position = next(function for function in functions if function.name == helper)
+        names = parameters(position)
+        keywords = {k.arg: k.value for k in node.keywords if k.arg}
+        if name in keywords:
+            return literal(keywords[name])
+        index = names.index(name)
+        return literal(node.args[index]) if index < len(node.args) else None
+
+    def parametrized(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[tuple[int, str]]:
+        """The platforms in the ``parametrize`` values of the argument the function calls with."""
+        if (name := domain_parameter.get(function.name)) is None:
+            return []
+        out: list[tuple[int, str]] = []
+        for decorator in function.decorator_list:
+            if not (isinstance(decorator, ast.Call) and len(decorator.args) > 1):
+                continue
+            names = decorator.args[0]
+            if isinstance(names, ast.Constant) and isinstance(names.value, str):
+                columns = [column.strip() for column in names.value.split(",")]
+            elif isinstance(names, ast.Tuple | ast.List):
+                columns = [n.value for n in names.elts if isinstance(n, ast.Constant)]
+            else:
+                continue
+            if name not in columns or not isinstance(decorator.args[1], ast.List | ast.Tuple):
+                continue
+            for row in decorator.args[1].elts:
+                cell = row.elts[columns.index(name)] if isinstance(row, ast.Tuple) else row
+                if (platform := literal(cell)) is not None:
+                    out.append((cell.lineno, platform))
+        return out
+
+    def direct(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+        found: set[str] = {platform for _, platform in parametrized(function)}
+        for node in ast.walk(function):
+            if (name := literal(_service_call_domain(node))) is not None or (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in domain_parameter
+                and (name := named_platform(node, node.func.id)) is not None
+            ):
+                found.add(name)
+        return found
+
+    needs: dict[str, set[str]] = {}
+    for function in functions:
+        needs.setdefault(function.name, set()).update(direct(function))
+    while True:
+        changed = False
+        for function in functions:
+            for node in ast.walk(function):
+                if (
+                    isinstance(node, ast.Name)
+                    and not needs.get(node.id, set()) <= needs[function.name]
+                ):
+                    needs[function.name] |= needs[node.id]
+                    changed = True
+        if not changed:
+            break
+
+    found: set[tuple[str, int, str]] = set()
+    for path, in_file in _test_functions(files).items():
+        for function in in_file:
+            for line, platform in parametrized(function):
+                if platform in missing:
+                    found.add((str(path), line, platform))
+            for node in ast.walk(function):
+                reached: set[str] = set()
+                if (name := literal(_service_call_domain(node))) is not None:
+                    reached = {name}
+                elif isinstance(node, ast.Name):
+                    reached = needs.get(node.id, set())
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in domain_parameter
+                    and (name := named_platform(node, node.func.id)) is not None
+                ):
+                    reached = {*reached, name}
+                for name in reached & missing:
+                    found.add((str(path), node.lineno, name))
+    return [f"{path}:{line}: {name}" for path, line, name in sorted(found)]
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_uses_only_platforms_it_has(
+    planned: Callable[[int], dict[Path, str]], number: int
+) -> None:
+    # A test that presses a button or turns on a switch before that platform is planned fails in
+    # core: the entity it works on doesn't exist yet.
+    assert _platforms_used(planned(number), _repository_tests()) == []
+
+
+def _platform_files(*platforms: str) -> dict[Path, str]:
+    return {COMPONENT / f"{name}.py": "" for name in platforms}
+
+
+def test_the_platform_check_flags_a_call_to_a_platform_the_cut_lacks() -> None:
+    test = (
+        "async def test_a(hass):\n"
+        "    await hass.services.async_call('button', 'press', {}, blocking=True)\n"
+        "    await hass.services.async_call('switch', 'turn_on', {})\n"
+        "    await hass.services.async_call(domain='switch', service='turn_off')\n"
+        "    await hass.services.async_call(DOMAIN, 'log_diaper', {})\n"
+        "    await hass.services.async_call('homeassistant', 'update_entity', {})\n"
+    )
+    files = {**_platform_files("sensor", "switch"), TESTS / "test_x.py": test}
+    assert _platforms_used(files) == [f"{TESTS / 'test_x.py'}:2: button"]
+    files = {**_platform_files("sensor"), TESTS / "test_x.py": test}
+    assert _platforms_used(files) == [
+        f"{TESTS / 'test_x.py'}:2: button",
+        f"{TESTS / 'test_x.py'}:3: switch",
+        f"{TESTS / 'test_x.py'}:4: switch",
+    ]
+
+
+def test_the_platform_check_passes_a_clean_cut() -> None:
+    test = (
+        "async def test_a(hass):\n"
+        "    await hass.services.async_call('button', 'press', {}, blocking=True)\n"
+        "    await hass.services.async_call('switch', 'turn_on', {})\n"
+    )
+    files = {**_platform_files("button", "switch"), TESTS / "test_x.py": test}
+    assert _platforms_used(files) == []
+    assert _platforms_used({}) == []
+
+
+def test_the_platform_check_follows_helpers_through_helpers() -> None:
+    helpers = (
+        "async def turn_on(hass, entity_id):\n"
+        "    await hass.services.async_call('switch', 'turn_on', {'entity_id': entity_id})\n"
+        "async def toggle(hass, entity_id):\n"
+        "    await turn_on(hass, entity_id)\n"
+        "async def nurse(hass, *steps):\n"
+        "    for step in steps:\n"
+        "        await toggle(hass, step)\n"
+        "async def unrelated(hass):\n"
+        "    return hass\n"
+    )
+    test = (
+        "from .helpers import nurse, unrelated\n"
+        "async def test_a(hass):\n"
+        "    await unrelated(hass)\n"
+        "async def test_b(hass):\n"
+        "    await nurse(hass, 'left')\n"
+    )
+    files = {**_platform_files("sensor"), TESTS / "helpers.py": helpers, TESTS / "test_x.py": test}
+    assert _platforms_used(files) == [
+        f"{TESTS / 'helpers.py'}:2: switch",
+        f"{TESTS / 'helpers.py'}:4: switch",
+        f"{TESTS / 'helpers.py'}:7: switch",
+        f"{TESTS / 'test_x.py'}:5: switch",
+    ]
+    assert _platforms_used({**files, **_platform_files("switch")}) == []
+
+
+def test_the_platform_check_follows_a_domain_passed_to_a_helper() -> None:
+    helpers = (
+        "async def call_service(hass, domain, service, data):\n"
+        "    await hass.services.async_call(domain, service, data, blocking=True)\n"
+    )
+    test = (
+        "from .helpers import call_service\n"
+        "async def test_a(hass):\n"
+        "    await call_service(hass, 'switch', 'turn_on', {})\n"
+        "    await call_service(hass, domain='button', service='press', data={})\n"
+        "    await call_service(hass, 'sensor', 'x', {})\n"
+    )
+    files = {**_platform_files("sensor"), TESTS / "helpers.py": helpers, TESTS / "test_x.py": test}
+    assert _platforms_used(files) == [
+        f"{TESTS / 'test_x.py'}:3: switch",
+        f"{TESTS / 'test_x.py'}:4: button",
+    ]
+
+
+def test_the_platform_check_sees_the_domain_given_positionally_or_as_a_keyword() -> None:
+    test = (
+        "async def test_a(hass):\n"
+        "    await hass.services.async_call('image', 'x')\n"
+        "    await hass.services.async_call(service='x', domain='image')\n"
+        "    await hass.services.call('image', 'x')\n"
+        "    await hass.services.async_call(\n"
+        "        'image',\n"
+        "        'x',\n"
+        "    )\n"
+    )
+    files = {**_platform_files("sensor"), TESTS / "test_x.py": test}
+    assert [line.split(":")[1] for line in _platforms_used(files)] == ["2", "3", "4", "5"]
+
+
+def test_the_platform_check_follows_parametrize_to_the_platform() -> None:
+    test = (
+        "import pytest\n"
+        "@pytest.mark.parametrize(\n"
+        "    ('domain', 'service'), [('switch', 'turn_on'), ('sensor', 'x')]\n"
+        ")\n"
+        "async def test_a(hass, domain, service):\n"
+        "    await hass.services.async_call(domain, service, {})\n"
+        "@pytest.mark.parametrize('service', ['turn_on', 'turn_off'])\n"
+        "async def test_b(hass, service):\n"
+        "    await hass.services.async_call('sensor', service, {})\n"
+    )
+    files = {**_platform_files("sensor"), TESTS / "test_x.py": test}
+    assert _platforms_used(files) == [f"{TESTS / 'test_x.py'}:3: switch"]
+    assert _platforms_used({**files, **_platform_files("switch")}) == []
+
+
+def test_a_helper_in_the_test_module_counts_like_one_in_the_helpers_module() -> None:
+    test = (
+        "async def press(hass):\n"
+        "    await hass.services.async_call('button', 'press', {})\n"
+        "async def test_a(hass):\n"
+        "    await press(hass)\n"
+    )
+    files = {**_platform_files("sensor"), TESTS / "test_x.py": test}
+    assert _platforms_used(files) == [
+        f"{TESTS / 'test_x.py'}:2: button",
+        f"{TESTS / 'test_x.py'}:4: button",
+    ]
+
+
+def test_a_test_marked_for_a_later_pr_than_its_module_waits_for_that_pr(
+    core_cut: ModuleType,
+) -> None:
+    test = (
+        "async def test_a(hass):\n"
+        "    await hass.services.async_call('sensor', 'x')\n"
+        "\n"
+        "\n"
+        "# Core PR 14\n"
+        "async def test_b(hass):\n"
+        "    await hass.services.async_call('button', 'press', {})\n"
+    )
+    early = {**_platform_files("sensor"), TESTS / "test_x.py": core_cut.cut_python(test, 11)}
+    assert _platforms_used(early) == []
+    late = {**_platform_files("sensor"), TESTS / "test_x.py": test}
+    assert _platforms_used(late) == [f"{TESTS / 'test_x.py'}:7: button"]
+    both = {
+        **_platform_files("sensor", "button"),
+        TESTS / "test_x.py": core_cut.cut_python(test, 14),
+    }
+    assert _platforms_used(both) == []
+
+
+def test_a_helper_marked_for_a_later_pr_leaves_no_platform_call_behind(
+    core_cut: ModuleType,
+) -> None:
+    helpers = (
+        "# Core PR 14\n"
+        "async def press(hass):\n"
+        "    await hass.services.async_call('button', 'press', {})\n"
+        "\n"
+        "\n"
+        "async def other(hass):\n"
+        "    await hass.services.async_call('sensor', 'x', {})\n"
+    )
+    cut = core_cut.cut_python(helpers, 2)
+    assert _platforms_used({**_platform_files("sensor"), TESTS / "helpers.py": cut}) == []
+
+
+def test_a_helper_the_cut_dropped_still_counts_for_the_tests_that_call_it() -> None:
+    helpers = (
+        "async def press(hass):\n"
+        "    await hass.services.async_call('button', 'press', {})\n"
+        "async def log(hass):\n"
+        "    await hass.services.async_call('sensor', 'x', {})\n"
+    )
+    test = (
+        "from .helpers import log, press\n"
+        "async def test_a(hass):\n"
+        "    await log(hass)\n"
+        "async def test_b(hass):\n"
+        "    await press(hass)\n"
+    )
+    # The cut leaves ``press`` out of the helpers but a test still calls it.
+    kept = "async def log(hass):\n    await hass.services.async_call('sensor', 'x', {})\n"
+    files = {**_platform_files("sensor"), TESTS / "helpers.py": kept, TESTS / "test_x.py": test}
+    written = {TESTS / "helpers.py": helpers, TESTS / "test_x.py": test}
+    assert _platforms_used(files) == []
+    assert _platforms_used(files, written) == [f"{TESTS / 'test_x.py'}:5: button"]
+    assert _platforms_used({**files, **_platform_files("button")}, written) == []
+
+
+def test_the_platform_check_sees_a_helper_passed_on_as_well_as_called() -> None:
+    helpers = (
+        "async def toggle(hass):\n"
+        "    await (turn_off if hass else turn_on)(hass)\n"
+        "async def turn_on(hass):\n"
+        "    await hass.services.async_call('switch', 'turn_on', {})\n"
+        "async def turn_off(hass):\n"
+        "    await hass.services.async_call('switch', 'turn_off', {})\n"
+    )
+    test = "from .helpers import toggle\nasync def test_a(hass):\n    await toggle(hass)\n"
+    files = {**_platform_files("sensor"), TESTS / "helpers.py": helpers, TESTS / "test_x.py": test}
+    assert _platforms_used(files) == [
+        f"{TESTS / 'helpers.py'}:2: switch",
+        f"{TESTS / 'helpers.py'}:4: switch",
+        f"{TESTS / 'helpers.py'}:6: switch",
+        f"{TESTS / 'test_x.py'}:3: switch",
+    ]
+
+
+def test_the_platforms_are_the_repositorys_platform_modules() -> None:
+    assert _platform_modules() == {"binary_sensor", "button", "image", "sensor", "switch"}
+
+
+def _side_key(value: ast.expr) -> str | None:
+    """The key an f-string over ``side`` and plain text gives, with ``{side}`` left in."""
+    if not isinstance(value, ast.JoinedStr):
+        return None
+    sides = [
+        part
+        for part in value.values
+        if isinstance(part, ast.FormattedValue)
+        and isinstance(part.value, ast.Name)
+        and part.value.id == "side"
+        and part.conversion == -1
+        and part.format_spec is None
+    ]
+    text = [part for part in value.values if isinstance(part, ast.Constant)]
+    if len(sides) != 1 or len(sides) + len(text) != len(value.values) or not text:
+        return None
+    return "".join(
+        "{side}" if isinstance(part, ast.FormattedValue) else part.value for part in value.values
+    )
+
+
+def _key_sites(files: dict[Path, str]) -> list[tuple[Path, ast.AST, set[str] | None]]:
+    """Each place a platform module of the cut sets an entity's translation key.
+
+    With the keys it sets, or None when the check can't tell them: anything but a string
+    literal, or an f-string over ``side``, and every ``_attr_translation_key`` and
+    ``{"translation_key": ...}``.
+    """
+    sites: list[tuple[Path, ast.AST, set[str] | None]] = []
+    for path, text in files.items():
+        if path.parent != COMPONENT or path.suffix != ".py" or path.stem not in _platform_modules():
+            continue
+        for node in ast.walk(ast.parse(text)):
+            if isinstance(node, ast.keyword) and node.arg == "translation_key":
+                value = node.value
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    sites.append((path, node.value, {value.value}))
+                elif (side := _side_key(value)) is not None:
+                    sites.append((path, value, {side.format(side=s) for s in ("left", "right")}))
+                else:
+                    sites.append((path, value, None))
+            elif isinstance(node, ast.Dict):
+                sites.extend(
+                    (path, key, None)
+                    for key in node.keys
+                    if isinstance(key, ast.Constant) and key.value == "translation_key"
+                )
+            elif isinstance(node, ast.Assign | ast.AnnAssign | ast.AugAssign):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                sites.extend(
+                    (path, target, None)
+                    for target in targets
+                    if (isinstance(target, ast.Name) and target.id == "_attr_translation_key")
+                    or (
+                        isinstance(target, ast.Attribute) and target.attr == "_attr_translation_key"
+                    )
+                )
+    return sites
+
+
+def _entity_keys(files: dict[Path, str]) -> set[tuple[str, str]]:
+    """The (platform, key) of each ``translation_key`` an entity description of the cut gives."""
+    return {(path.stem, key) for path, _, keys in _key_sites(files) for key in keys or ()}
+
+
+def _unresolved_keys(files: dict[Path, str]) -> list[str]:
+    """Where a platform module sets a translation key the check can't read, as ``path:line``."""
+    return [
+        f"{path}:{node.lineno}"
+        for path, node, keys in sorted(
+            _key_sites(files), key=lambda site: (str(site[0]), site[1].lineno)
+        )
+        if keys is None
+    ]
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_gives_its_entity_keys_in_a_way_the_check_reads(
+    planned: Callable[[int], dict[Path, str]], number: int
+) -> None:
+    assert _unresolved_keys(planned(number)) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "line"),
+    [
+        ("KEY = 'x'\nA = D(key='x', translation_key=KEY)\n", 2),
+        ("def d(key):\n    return D(key=key, translation_key=key)\n", 2),
+        ("def d(key):\n    return D(key=key, translation_key=f'{key}_time')\n", 2),
+        ("def d(side):\n    return D(translation_key=f'nursing_{side}_{side}')\n", 2),
+        ("def d(side):\n    return D(translation_key=f'{side}')\n", 2),
+        ("def d(side):\n    return D(translation_key='a' + side)\n", 2),
+        ("A = D(**{'translation_key': 'x'})\n", 1),
+        ("class E:\n    _attr_translation_key = 'x'\n", 2),
+        ("class E:\n    def __init__(self):\n        self._attr_translation_key = 'x'\n", 3),
+        ("class E:\n    _attr_translation_key: str = 'x'\n", 2),
+    ],
+)
+def test_the_entity_key_check_names_a_key_it_cannot_resolve(source: str, line: int) -> None:
+    files = {COMPONENT / "switch.py": source}
+    assert _unresolved_keys(files) == [f"{COMPONENT / 'switch.py'}:{line}"]
+
+
+def test_the_entity_key_check_accepts_the_keys_it_reads() -> None:
+    source = (
+        "A = D(key='x', translation_key='x')\n"
+        "def d(side):\n"
+        "    return D(translation_key=f'nursing_{side}')\n"
+        "def e(side):\n"
+        "    return D(translation_key=f'last_nursing_{side}_time')\n"
+        "B = D(key='y')\n"
+    )
+    assert _unresolved_keys({COMPONENT / "switch.py": source}) == []
+
+
+def test_the_entity_key_check_looks_only_at_platform_modules() -> None:
+    source = "def d(key):\n    return E(translation_key=key)\n"
+    files = {COMPONENT / "writes.py": source, COMPONENT / "entity.py": source}
+    assert _unresolved_keys(files) == []
+
+
+def _unnamed_entities(files: dict[Path, str]) -> list[str]:
+    """The entity keys the cut's platforms use that its strings.json has no name for."""
+    strings = json.loads(files[COMPONENT / "strings.json"]).get("entity", {})
+    return sorted(
+        f"entity.{platform}.{key}"
+        for platform, key in _entity_keys(files)
+        if key not in strings.get(platform, {})
+    )
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_names_the_entities_it_creates(
+    planned: Callable[[int], dict[Path, str]], number: int
+) -> None:
+    # In core an entity whose translation key has no string gets no name, so its entity ID is
+    # not the one the tests use.
+    assert _unnamed_entities(planned(number)) == []
+
+
+def test_the_entity_name_check_flags_a_key_with_no_string() -> None:
+    switch = (
+        "A = SwitchEntityDescription(key='sleep', translation_key='sleep')\n"
+        "def d(side):\n"
+        "    return SwitchEntityDescription(key=side, translation_key=f'nursing_{side}')\n"
+        "B = SwitchEntityDescription(key='x')\n"
+    )
+    strings = {"entity": {"switch": {"sleep": {"name": "Sleep"}, "nursing_left": {}}}}
+    files = {
+        COMPONENT / "switch.py": switch,
+        COMPONENT / "entity.py": "X = dict(translation_key='baby')\n",
+        COMPONENT / "strings.json": json.dumps(strings),
+    }
+    assert _entity_keys(files) == {
+        ("switch", "sleep"),
+        ("switch", "nursing_left"),
+        ("switch", "nursing_right"),
+    }
+    assert _unnamed_entities(files) == ["entity.switch.nursing_right"]
+    strings["entity"]["switch"]["nursing_right"] = {}
+    files[COMPONENT / "strings.json"] = json.dumps(strings)
+    assert _unnamed_entities(files) == []
+
+
 def _registered_actions(files: dict[Path, str]) -> set[str]:
     """The actions the cut's services.py registers, by name."""
     if COMPONENT / "services.py" not in files:
