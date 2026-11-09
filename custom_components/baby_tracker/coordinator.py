@@ -230,8 +230,9 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
 
     async def _async_sync(self) -> BabyTrackerData:
         before = dict(self.engine.last_seen)
+        seed_read = False
         try:
-            await self.engine.sync(self.client)
+            seed_read = (await self.engine.sync(self.client)).seed_read
         except AuthenticationError as err:
             raise ConfigEntryAuthFailed(
                 translation_domain=DOMAIN, translation_key="auth_failed"
@@ -243,8 +244,9 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
                 translation_placeholders={"error": str(err)},
             ) from err
         finally:
-            # Keep progress even when a later device failed.
-            if dict(self.engine.last_seen) != before:
+            # Keep progress even when a later device failed. Reading the account's seed adds
+            # its records without moving any log forward, so it's saved too.
+            if seed_read or dict(self.engine.last_seen) != before:
                 await self._async_save()
         return self._rebuild()
 

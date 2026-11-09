@@ -1,6 +1,9 @@
 """Core PR 1: setup, sync, storage, unload, and translated errors."""
 
+import io
 import logging
+import sqlite3
+import zipfile
 from datetime import timedelta
 from typing import Any
 from unittest.mock import patch
@@ -26,6 +29,7 @@ from custom_components.baby_tracker.const import (
 
 from . import (
     BABY_ONE,  # HACS-only: the engine tests
+    BABY_ONE_ID,
     DIAPER,
     NOW,
     tick,
@@ -38,7 +42,7 @@ from .factories import (
     record_payload,  # HACS-only: the engine tests
     volume,  # HACS-only: the engine tests
 )
-from .fake_server import FakeServer
+from .fake_server import FakeClient, FakeServer
 
 
 @pytest.fixture(autouse=True)
@@ -249,6 +253,55 @@ async def test_new_records_are_saved_after_a_sync(
     await tick(hass)
     saved = hass_storage[_storage_key(init_integration)]["data"]
     assert saved["last_seen"] == {DEVICE_A: 2, DEVICE_B: 1}
+
+
+def _seed_zip(object_id: str, when: float) -> bytes:
+    """A seed: a zip with a database holding one baby and one diaper, in the app's tables."""
+    database = sqlite3.connect(":memory:")
+    database.execute(
+        'CREATE TABLE "Baby" ("ID" TEXT PRIMARY KEY, "Timestamp" REAL, "Name" TEXT, "DOB" REAL)'
+    )
+    database.execute(
+        'CREATE TABLE "Diaper" ("ID" TEXT PRIMARY KEY, "Timestamp" REAL, "Time" REAL, '
+        '"Note" TEXT, "BabyID" TEXT, "Status" INTEGER)'
+    )
+    database.execute(
+        'INSERT INTO "Baby" VALUES (?, ?, ?, ?)', (BABY_ONE_ID, when, "Baby One", when)
+    )
+    database.execute(
+        'INSERT INTO "Diaper" VALUES (?, ?, ?, ?, ?, ?)',
+        (object_id, when, when, "", BABY_ONE_ID, 0),
+    )
+    database.commit()
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zipped:
+        zipped.writestr("EasyLog.db", database.serialize())
+    database.close()
+    return buffer.getvalue()
+
+
+async def test_a_sync_that_reads_the_seed_saves_it(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    hass_storage: dict[str, Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test the seed's records are saved though no log moved forward."""
+    old_diaper = "D0000000-0000-4000-8000-0000000000SD"
+    seed = _seed_zip(old_diaper, at(-600).timestamp())
+
+    async def get_seed(_client: FakeClient) -> bytes:
+        return seed
+
+    monkeypatch.setattr(FakeClient, "get_seed", get_seed, raising=False)
+    await tick(hass)
+    # The seed is decoded on a worker thread.
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    saved = hass_storage[_storage_key(init_integration)]["data"]
+    assert saved["seeded"] is True
+    assert saved["last_seen"] == {DEVICE_A: 2}
+    assert old_diaper in {entry["payload"]["objectID"] for entry in saved["records"]}
 
 
 async def test_a_restart_loads_the_saved_state_and_does_not_reload_history(
