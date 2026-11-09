@@ -1,4 +1,4 @@
-"""Diaper, Bottle, and Discard nursing buttons, one set per baby."""
+"""Diaper, Bottle, Bath, and Discard nursing buttons, one set per baby."""
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -10,7 +10,12 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .coordinator import BabyTrackerConfigEntry, BabyTrackerCoordinator
 from .entity import BabyTrackerBabyEntity
-from .writes import async_discard_nursing, async_log_configured_bottle, async_log_diaper
+from .writes import (
+    async_discard_nursing,
+    async_log_bath,  # Core PR 27
+    async_log_configured_bottle,
+    async_log_diaper,
+)
 
 # The coordinator's lock serializes writes, so Home Assistant needn't.
 PARALLEL_UPDATES = 0
@@ -50,6 +55,12 @@ BUTTONS: tuple[BabyTrackerButtonDescription, ...] = (
         translation_key="discard_nursing",
         press_fn=async_discard_nursing,
     ),
+)
+
+# Core PR 27
+# Logs a bath now, as an activity of the account's Bath type.
+BUTTONS += (
+    BabyTrackerButtonDescription(key="bath", translation_key="bath", press_fn=async_log_bath),
 )
 
 

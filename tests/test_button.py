@@ -47,7 +47,7 @@ async def test_buttons(
     await snapshot_platform(hass, entity_registry, snapshot, mock_config_entry.entry_id)
 
 
-async def test_each_baby_gets_wet_dirty_mixed_bottle_and_discard_nursing_buttons(
+async def test_each_baby_gets_its_logging_and_discard_nursing_buttons(
     hass: HomeAssistant, init_integration: MockConfigEntry
 ) -> None:
     devices = dr.async_get(hass)
@@ -64,7 +64,8 @@ async def test_each_baby_gets_wet_dirty_mixed_bottle_and_discard_nursing_buttons
             "mixed_diaper",
             "bottle",
             "discard_nursing",
+            "bath",  # Core PR 27
         }
-        assert len({b.unique_id for b in buttons}) == 5
+        assert len({b.unique_id for b in buttons}) == len(buttons) == 6
     assert hass.states.get(button("baby_one", "wet")) is not None
     assert hass.states.get(button("baby_two", "mixed")) is not None

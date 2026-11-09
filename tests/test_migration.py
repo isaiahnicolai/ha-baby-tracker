@@ -118,6 +118,7 @@ async def test_the_one_shot_buttons_and_discard_are_the_only_buttons_per_baby(
             "mixed_diaper",
             "bottle",
             "discard_nursing",
+            "bath",  # Core PR 27
         }
 
 

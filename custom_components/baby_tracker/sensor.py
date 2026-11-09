@@ -39,6 +39,7 @@ from pybabytracker import (
     Medication,  # Core PR 26
     Milestone,  # Core PR 24
     Nursing,  # Core PR 4
+    OtherActivity,  # Core PR 27
     Pump,  # Core PR 5
     Pumped,  # Core PR 4
     Record,
@@ -121,6 +122,16 @@ def _pump_attributes(record: Record | None) -> dict[str, Any]:
         "right_duration_minutes": pump.right_duration if pump else None,
         "sides": pump.sides if pump else None,
         "note": _note(pump),
+    }
+
+
+# Core PR 27
+def _bath_attributes(record: Record | None) -> dict[str, Any]:
+    bath = record if isinstance(record, OtherActivity) else None
+    duration = bath.duration if bath is not None else None
+    return {
+        "duration_minutes": duration if isinstance(duration, int) else None,
+        "note": _note(bath),
     }
 
 
@@ -579,6 +590,17 @@ class BabyTrackerLastSelectionSensor(BabyTrackerBabyEntity, SensorEntity):
         }
 
 
+# Core PR 27
+# A bath is an activity of a type named Bath; the app has no bath screen.
+LAST_BATH = BabyTrackerSensorDescription(
+    key="last_bath",
+    translation_key="last_bath",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    record_fn=lambda baby: baby.bath,
+    attributes_fn=_bath_attributes,
+)
+
+
 # Core PR 24
 LAST_MILESTONE = SensorEntityDescription(key="last_milestone", translation_key="last_milestone")
 
@@ -875,6 +897,7 @@ BABY_SENSORS: tuple[
     ((LAST_VACCINE,), BabyTrackerLastVaccineSensor),  # Core PR 25
     ((LAST_MEDICINE,), BabyTrackerLastMedicineSensor),  # Core PR 26
     ((NEXT_MEDICINE_DOSE,), BabyTrackerNextMedicineDoseSensor),  # Core PR 26
+    ((LAST_BATH,), BabyTrackerSensor),  # Core PR 27
     (LAST_DETAIL_SENSORS, BabyTrackerLastDetailSensor),  # Core PR 4
 )
 

@@ -24,6 +24,9 @@
       },
       "discard_nursing": {
         "default": "mdi:timer-off"
+      },
+      "bath": {
+        "default": "mdi:bathtub"
       }
     },
     "sensor": {
@@ -95,6 +98,9 @@
       },
       "next_medicine_dose": {
         "default": "mdi:pill-multiple"
+      },
+      "last_bath": {
+        "default": "mdi:bathtub-outline"
       }
     },
     "switch": {
@@ -181,6 +187,9 @@
     },
     "log_medicine": {
       "service": "mdi:pill"
+    },
+    "log_activity": {
+      "service": "mdi:run"
     }
   }
 }

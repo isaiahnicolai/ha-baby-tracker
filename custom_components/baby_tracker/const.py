@@ -86,3 +86,9 @@ class BabyTrackerService(StrEnum):
     STOP_NURSING = "stop_nursing"
     DISCARD_NURSING = "discard_nursing"
     LOG_MEDICINE = "log_medicine"  # Core PR 26
+    LOG_ACTIVITY = "log_activity"  # Core PR 27
+
+
+# Core PR 27
+# The app has no bath screen: a bath is an activity of a type added in the app with this name.
+BATH_ACTIVITY = "Bath"

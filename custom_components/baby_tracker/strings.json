@@ -84,6 +84,9 @@
       },
       "discard_nursing": {
         "name": "Discard nursing"
+      },
+      "bath": {
+        "name": "Bath"
       }
     },
     "sensor": {
@@ -253,6 +256,17 @@
           },
           "medicines": {
             "name": "Next dose by medicine"
+          }
+        }
+      },
+      "last_bath": {
+        "name": "Last bath",
+        "state_attributes": {
+          "duration_minutes": {
+            "name": "Duration"
+          },
+          "note": {
+            "name": "Note"
           }
         }
       }
@@ -629,6 +643,36 @@
           "description": "How much was given, in the medicine's own unit. Defaults to its usual dose."
         }
       }
+    },
+    "log_activity": {
+      "name": "Log activity",
+      "description": "Adds an activity, such as a bath or tummy time, as Home Assistant's own device in the Baby Tracker account.",
+      "fields": {
+        "device_id": {
+          "name": "Baby",
+          "description": "The baby's device."
+        },
+        "activity": {
+          "name": "Activity",
+          "description": "The activity's name as the app shows it, such as Tummy Time, or Bath once it's added in the app. It must be built in or added in the app."
+        },
+        "minutes": {
+          "name": "Minutes",
+          "description": "How long it lasted. Leave it empty or 0 when it wasn't timed."
+        },
+        "time": {
+          "name": "Time",
+          "description": "When it happened. Defaults to now. A time without an offset is read in Home Assistant's time zone."
+        },
+        "note": {
+          "name": "Note",
+          "description": "An optional note to save with the activity."
+        },
+        "object_id": {
+          "name": "Record ID",
+          "description": "A UUID you choose. Reuse the same one to retry safely: if a write with this ID already landed, nothing is added again. Leave it empty for a new activity each time."
+        }
+      }
     }
   },
   "selector": {
@@ -769,6 +813,9 @@
     },
     "unknown_medicine": {
       "message": "Medicine {medicine} isn't one the account has used or added in the app. Check the name as the app shows it."
+    },
+    "unknown_activity": {
+      "message": "Activity {activity} isn't one the account has. Add it in the Baby Tracker app first (for a bath, an activity named Bath), then use the name the app shows."
     }
   },
   "issues": {

@@ -23,6 +23,17 @@
       'translation_key': 'asleep',
       'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_asleep',
     }),
+    'button.baby_one_bath': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '11111111-AAAA-4AAA-8AAA-000000000001',
+        ),
+      ]),
+      'device_name': 'Baby One',
+      'translation_key': 'bath',
+      'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_bath',
+    }),
     'button.baby_one_bottle': dict({
       'device_identifiers': list([
         tuple(
@@ -77,6 +88,17 @@
       'device_name': 'Baby One',
       'translation_key': 'wet_diaper',
       'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_wet_diaper',
+    }),
+    'button.baby_two_bath': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '22222222-BBBB-4BBB-8BBB-000000000002',
+        ),
+      ]),
+      'device_name': 'Baby Two',
+      'translation_key': 'bath',
+      'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_bath',
     }),
     'button.baby_two_bottle': dict({
       'device_identifiers': list([
@@ -209,6 +231,17 @@
       'device_name': 'Baby One',
       'translation_key': 'feeds_today',
       'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_feeds_today',
+    }),
+    'sensor.baby_one_last_bath': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '11111111-AAAA-4AAA-8AAA-000000000001',
+        ),
+      ]),
+      'device_name': 'Baby One',
+      'translation_key': 'last_bath',
+      'unique_id': '11111111-AAAA-4AAA-8AAA-000000000001_last_bath',
     }),
     'sensor.baby_one_last_diaper': dict({
       'device_identifiers': list([
@@ -462,6 +495,17 @@
       'device_name': 'Baby Two',
       'translation_key': 'feeds_today',
       'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_feeds_today',
+    }),
+    'sensor.baby_two_last_bath': dict({
+      'device_identifiers': list([
+        tuple(
+          'baby_tracker',
+          '22222222-BBBB-4BBB-8BBB-000000000002',
+        ),
+      ]),
+      'device_name': 'Baby Two',
+      'translation_key': 'last_bath',
+      'unique_id': '22222222-BBBB-4BBB-8BBB-000000000002_last_bath',
     }),
     'sensor.baby_two_last_diaper': dict({
       'device_identifiers': list([

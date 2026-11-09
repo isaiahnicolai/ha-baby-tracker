@@ -33,6 +33,7 @@ from pybabytracker import (
     Medication,  # Core PR 26
     Nursing,
     NursingTimer,  # Core PR 18
+    OtherActivity,  # Core PR 27
     Pumped,
     PumpTimer,  # Core PR 21
     Record,
@@ -43,6 +44,7 @@ from pybabytracker import (
 )
 
 from .const import (
+    BATH_ACTIVITY,  # Core PR 27
     CONF_DEVICE_UUID,
     DOMAIN,
     SCAN_INTERVAL,
@@ -89,6 +91,9 @@ class BabyData:
     # The newest dose of each medicine, by the medicine's ID (or its name when it has none), so
     # the next dose of every medicine is known when two of them alternate.
     medicine_doses: dict[str, Medication] | None = None
+    # Core PR 27
+    # The newest bath: an activity of a type named Bath.
+    bath: OtherActivity | None = None
     # Core PR 4
     # The newest nursing, whatever feed came after it, so its minutes stay visible.
     last_nursing: Record | None = None
@@ -142,6 +147,13 @@ def medicine_key(dose: Medication) -> str | None:
 def _dose_order(dose: Medication) -> tuple[float, str]:
     """Order doses by time, then by record ID, so equal times give the same answer every time."""
     return (dose.time.timestamp() if dose.time is not None else 0.0, dose.object_id)
+
+
+# Core PR 27
+def is_bath(record: OtherActivity) -> bool:
+    """Return whether an activity is a bath: its type is named Bath, ignoring case and spaces."""
+    name = record.activity_name
+    return name is not None and name.strip().casefold() == BATH_ACTIVITY.casefold()
 
 
 def _newest(records: list[Record]) -> Record | None:
@@ -287,6 +299,7 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
                 vaccine=latest.get("Vaccine"),  # Core PR 25
                 medicine=latest.get("Medication"),  # Core PR 26
                 medicine_doses=self._medicine_doses(baby_id),  # Core PR 26
+                bath=self._last_bath(baby_id),  # Core PR 27
                 last_nursing=self._last_nursing(latest),  # Core PR 4
             )
         return BabyTrackerData(
@@ -299,6 +312,20 @@ class BabyTrackerCoordinator(DataUpdateCoordinator[BabyTrackerData]):
     # Core PR 23
     def _latest_picture(self, baby_id: str) -> AttachedPicture | None:
         return newest_attached_picture(self.engine.records.values(), baby_id)
+
+    # Core PR 27
+    def _last_bath(self, baby_id: str) -> OtherActivity | None:
+        """Return the baby's newest bath: an activity whose type is named Bath, in any case."""
+        baths: list[Record] = [
+            record
+            for record in self.engine.records.values()
+            if isinstance(record, OtherActivity)
+            and record.baby_id == baby_id
+            and record.time is not None
+            and is_bath(record)
+        ]
+        newest = _newest(baths)
+        return newest if isinstance(newest, OtherActivity) else None
 
     # Core PR 26
     def _medicine_doses(self, baby_id: str) -> dict[str, Medication]:

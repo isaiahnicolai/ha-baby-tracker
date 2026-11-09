@@ -92,6 +92,9 @@ PER_BABY += 1
 # Core PR 26
 # And last medicine and next medicine dose sensors.
 PER_BABY += 2
+# Core PR 27
+# And a last bath sensor.
+PER_BABY += 1
 
 
 # The buttons share each baby's device, so entity counts here look at readings only.
