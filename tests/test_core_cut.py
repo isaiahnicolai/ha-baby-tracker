@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -66,6 +67,38 @@ def _load() -> ModuleType:
 @pytest.fixture(scope="module")
 def core_cut() -> ModuleType:
     return _load()
+
+
+@pytest.fixture(scope="module")
+def planned(core_cut: ModuleType) -> Callable[[int], dict[Path, str]]:
+    """Each planned PR's files, cut once per module: the per-PR checks share them."""
+    cache: dict[int, dict[Path, str]] = {}
+
+    def files(number: int) -> dict[Path, str]:
+        if number not in cache:
+            cache[number] = core_cut.planned_files(number)
+        return cache[number]
+
+    return files
+
+
+@pytest.fixture(scope="module")
+def cut_tree(
+    planned: Callable[[int], dict[Path, str]], tmp_path_factory: pytest.TempPathFactory
+) -> Callable[[int], Path]:
+    """A folder holding each planned PR's files as a cut writes them, made once per module."""
+    cache: dict[int, Path] = {}
+
+    def tree(number: int) -> Path:
+        if number not in cache:
+            root = tmp_path_factory.mktemp(f"cut{number:02d}")
+            for relative, text in planned(number).items():
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_text(text)
+            cache[number] = root
+        return cache[number]
+
+    return tree
 
 
 def _tree(root: Path) -> dict[str, str]:
@@ -518,27 +551,25 @@ def test_strict_typing_adds_the_integration_once_in_order(core_cut: ModuleType, 
     )
 
 
-def test_the_pr1_cut_has_no_trace_of_the_hacs_repository(core_cut: ModuleType, core: Path) -> None:
-    core_cut.cut(1, core, ruff=None)
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_has_no_trace_of_the_hacs_repository(
+    cut_tree: Callable[[int], Path], number: int
+) -> None:
+    core = cut_tree(number)
     for root in (core / COMPONENT, core / TESTS):
         for name, text in _tree(root).items():
             for trace in ("custom_components", "HACS", "Core PR", "# Core:", "_custom_component"):
                 assert trace not in text, (name, trace)
 
 
-def _cut_coordinator(core_cut: ModuleType, core: Path, number: int) -> str:
-    core_cut.cut(number, core, ruff=None)
-    return (core / COMPONENT / "coordinator.py").read_text()
-
-
 @pytest.mark.parametrize("number", range(1, LAST_PR + 1))
 def test_every_cut_raises_config_entry_auth_failed_on_a_rejected_password(
-    core_cut: ModuleType, core: Path, number: int
+    planned: Callable[[int], dict[Path, str]], number: int
 ) -> None:
     # Core starts a reauth flow only when the integration has one, so PR 1, which has none,
     # still gets the authentication path: setup fails, and a loaded entry stops polling
     # instead of sending the rejected password at every interval.
-    source = _cut_coordinator(core_cut, core, number)
+    source = planned(number)[COMPONENT / "coordinator.py"]
     assert "raise ConfigEntryAuthFailed(" in source
     assert "ConfigEntryError" not in source
     assert 'translation_key="auth_failed"' in source
@@ -598,19 +629,19 @@ def test_the_pr1_cut_leaves_out_later_features(core_cut: ModuleType, core: Path)
 
 
 @pytest.mark.parametrize("number", range(1, LAST_PR + 1))
-def test_every_planned_cut_is_valid_python(core_cut: ModuleType, core: Path, number: int) -> None:
-    core_cut.cut(number, core, ruff=None)
+def test_every_planned_cut_is_valid_python(cut_tree: Callable[[int], Path], number: int) -> None:
+    core = cut_tree(number)
     for path in [*(core / COMPONENT).rglob("*.py"), *(core / TESTS).rglob("*.py")]:
         ast.parse(path.read_text(), filename=str(path))
 
 
 @pytest.mark.parametrize("number", range(1, LAST_PR + 1))
 def test_every_planned_cut_leaves_no_unused_imports(
-    core_cut: ModuleType, core: Path, number: int
+    cut_tree: Callable[[int], Path], number: int
 ) -> None:
     # Core's ruff fails on an import whose only users wait for a later PR, so each import
     # needs the marker of its earliest user.
-    core_cut.cut(number, core, ruff=None)
+    core = cut_tree(number)
     ruff = shutil.which("ruff") or str(Path(sys.executable).parent / "ruff")
     result = subprocess.run(
         [
@@ -630,6 +661,841 @@ def test_every_planned_cut_leaves_no_unused_imports(
         check=False,
     )
     assert result.returncode == 0, result.stdout
+
+
+def _bound(target: ast.expr) -> set[str]:
+    """The names an assignment target binds: ``A``, or each name of ``A, (B, *C)``."""
+    return {node.id for node in ast.walk(target) if isinstance(node, ast.Name)}
+
+
+def _class_members(tree: ast.Module) -> dict[str, set[str]]:
+    """The names each top-level class assigns in its body, by class name."""
+    members: dict[str, set[str]] = {}
+    for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            names = members.setdefault(node.name, set())
+            for item in node.body:
+                if isinstance(item, ast.Assign):
+                    for target in item.targets:
+                        names |= _bound(target)
+                elif isinstance(item, ast.AnnAssign):
+                    names |= _bound(item.target)
+                elif isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
+                    names.add(item.name)
+    return members
+
+
+def _python(files: dict[Path, str]) -> dict[Path, ast.Module]:
+    return {path: ast.parse(text) for path, text in files.items() if path.suffix == ".py"}
+
+
+def _missing_members(files: dict[Path, str]) -> list[str]:
+    """``Class.member`` reads, in the component and its tests, of a member the class lacks."""
+    members = _cut_members(files)
+    return sorted(
+        f"{path}:{node.lineno}: {node.value.id}.{node.attr}"
+        for path, tree in _python(files).items()
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in members
+        and node.attr not in members[node.value.id]
+        and not node.attr.startswith("__")
+    )
+
+
+def _cut_members(files: dict[Path, str]) -> dict[str, set[str]]:
+    members: dict[str, set[str]] = {}
+    for path, tree in _python(files).items():
+        if path.is_relative_to(COMPONENT):
+            for cls, names in _class_members(tree).items():
+                members.setdefault(cls, set()).update(names)
+    return members
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_uses_only_class_members_it_keeps(
+    planned: Callable[[int], dict[Path, str]], number: int
+) -> None:
+    # A HACS-only member (``BABY = "baby"  # HACS-only``) leaves the cut, so a line still kept in
+    # core that reads ``BabyTrackerServiceArgument.BABY`` fails at import. Ruff can't see that.
+    files = planned(number)
+    if number >= 9:
+        # The check is only as good as the members it finds: from PR 9 on, the actions' fields.
+        assert "DEVICE_ID" in _cut_members(files).get("BabyTrackerServiceArgument", set())
+    assert _missing_members(files) == []
+
+
+def test_the_member_check_reports_a_member_the_cut_removed() -> None:
+    files = {
+        COMPONENT / "const.py": "class Field:\n    KEPT = 1\n",
+        TESTS / "test_x.py": "from homeassistant.components.baby_tracker.const import Field\n"
+        "Field.KEPT\nField.GONE\n",
+    }
+    assert _missing_members(files) == [f"{TESTS / 'test_x.py'}:3: Field.GONE"]
+
+
+def test_the_member_check_knows_methods_annotations_and_tuple_targets() -> None:
+    files = {
+        COMPONENT / "const.py": (
+            "class Field:\n"
+            "    ONE, (TWO, THREE) = 1, (2, 3)\n"
+            "    FOUR: int = 4\n"
+            "    def five(self) -> None: ...\n"
+            "    async def six(self) -> None: ...\n"
+            "Field.ONE, Field.TWO, Field.THREE, Field.FOUR, Field.five, Field.six\n"
+            "Field.__name__\n"
+            "Field.SEVEN\n"
+        ),
+    }
+    assert _missing_members(files) == [f"{COMPONENT / 'const.py'}:8: Field.SEVEN"]
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_uses_only_names_it_defines(
+    cut_tree: Callable[[int], Path], number: int
+) -> None:
+    # A line kept in core that uses a name only HACS defines (a HACS-only helper or enum member)
+    # parses fine but fails at runtime, so each such line needs the HACS-only marker too.
+    core = cut_tree(number)
+    ruff = shutil.which("ruff") or str(Path(sys.executable).parent / "ruff")
+    result = subprocess.run(
+        [
+            ruff,
+            "check",
+            "--isolated",
+            "--no-cache",
+            "--target-version",
+            "py314",
+            "--select",
+            "F821,F822,F823",
+            "--output-format",
+            "concise",
+            str(core / COMPONENT),
+            str(core / TESTS),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout
+
+
+def _module_name(path: Path) -> str:
+    parts = path.with_suffix("").parts
+    return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
+
+
+def _top_level_names(tree: ast.Module) -> set[str]:
+    """The names a module binds at its top level, where an import of it can find them."""
+    names: set[str] = set()
+
+    def visit(body: list[ast.stmt]) -> None:
+        for node in body:
+            match node:
+                case ast.FunctionDef() | ast.AsyncFunctionDef() | ast.ClassDef():
+                    names.add(node.name)
+                case ast.TypeAlias():
+                    names.update(_bound(node.name))
+                case ast.Assign():
+                    for target in node.targets:
+                        names.update(_bound(target))
+                case ast.AnnAssign() | ast.AugAssign():
+                    names.update(_bound(node.target))
+                case ast.Import():
+                    names.update((a.asname or a.name).split(".")[0] for a in node.names)
+                case ast.ImportFrom():
+                    names.update(a.asname or a.name for a in node.names)
+                case ast.For() | ast.AsyncFor():
+                    names.update(_bound(node.target))
+                    visit(node.body)
+                    visit(node.orelse)
+                case ast.With() | ast.AsyncWith():
+                    for item in node.items:
+                        if item.optional_vars is not None:
+                            names.update(_bound(item.optional_vars))
+                    visit(node.body)
+                case ast.If() | ast.While():
+                    visit(node.body)
+                    visit(node.orelse)
+                case ast.Try() | ast.TryStar():
+                    visit(node.body)
+                    for handler in node.handlers:
+                        visit(handler.body)
+                    visit(node.orelse)
+                    visit(node.finalbody)
+
+    visit(tree.body)
+    return names
+
+
+def _unresolved_imports(files: dict[Path, str]) -> list[str]:
+    """Imports, in the component and its tests, of a module or name the cut doesn't have."""
+    trees = _python(files)
+    modules = {_module_name(path): tree for path, tree in trees.items()}
+    packages = {_module_name(path) for path in trees if path.name == "__init__.py"}
+    names = {module: _top_level_names(tree) for module, tree in modules.items()}
+    ours = tuple(_module_name(root) for root in (COMPONENT, TESTS))
+
+    def is_ours(module: str) -> bool:
+        return any(module == root or module.startswith(f"{root}.") for root in ours)
+
+    found = []
+    for path, tree in trees.items():
+        here = _module_name(path)
+        package = here if path.name == "__init__.py" else here.rpartition(".")[0]
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                found.extend(
+                    f"{path}:{node.lineno}: no module {alias.name}"
+                    for alias in node.names
+                    if is_ours(alias.name) and alias.name not in modules
+                )
+                continue
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            if node.level:
+                base = package.rsplit(".", node.level - 1)[0] if node.level > 1 else package
+                target = f"{base}.{node.module}" if node.module else base
+                shown = "." * node.level + (node.module or "")
+            elif node.module is not None and is_ours(node.module):
+                target = shown = node.module
+            elif node.module is not None and f"{node.module}.{node.names[0].name}" in modules:
+                # ``from homeassistant.components import baby_tracker``
+                continue
+            else:
+                continue
+            if target not in modules:
+                found.append(f"{path}:{node.lineno}: no module {shown}")
+                continue
+            found.extend(
+                f"{path}:{node.lineno}: {shown} has no {alias.name}"
+                for alias in node.names
+                if alias.name != "*"
+                and alias.name not in names[target]
+                and not (target in packages and f"{target}.{alias.name}" in modules)
+            )
+    return sorted(found)
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_imports_only_what_it_has(
+    planned: Callable[[int], dict[Path, str]], number: int
+) -> None:
+    # Ruff can't see that ``from .bottle import OUNCES`` names a module or a name the cut leaves
+    # for a later PR (or for HACS), and core fails at import.
+    assert _unresolved_imports(planned(number)) == []
+
+
+def test_the_import_check_reports_a_missing_module_and_a_missing_name() -> None:
+    files = {
+        COMPONENT / "__init__.py": "from .const import DOMAIN, LATER\nfrom .bottle import OUNCES\n",
+        COMPONENT / "const.py": "DOMAIN = 'baby_tracker'\n",
+        TESTS / "__init__.py": "",
+        TESTS / "test_x.py": "from homeassistant.components.baby_tracker.const import GONE\n"
+        "import homeassistant.components.baby_tracker.gone\n",
+    }
+    assert _unresolved_imports(files) == [
+        f"{COMPONENT / '__init__.py'}:1: .const has no LATER",
+        f"{COMPONENT / '__init__.py'}:2: no module .bottle",
+        f"{TESTS / 'test_x.py'}:1: homeassistant.components.baby_tracker.const has no GONE",
+        f"{TESTS / 'test_x.py'}:2: no module homeassistant.components.baby_tracker.gone",
+    ]
+
+
+def test_the_import_check_finds_every_kind_of_top_level_name() -> None:
+    files = {
+        COMPONENT / "__init__.py": "from .const import *\n",
+        COMPONENT / "const.py": (
+            "import json\n"
+            "import os.path\n"
+            "from typing import Any as Anything\n"
+            "type Alias = int\n"
+            "ONE, (TWO, *REST) = 1, (2, 3)\n"
+            "THREE: int = 3\n"
+            "FOUR: int\n"
+            "FIVE = 0\n"
+            "FIVE += 1\n"
+            "def function() -> None: ...\n"
+            "async def coroutine() -> None: ...\n"
+            "class Class: ...\n"
+            "if FIVE:\n"
+            "    SIX = 6\n"
+            "else:\n"
+            "    SEVEN = 7\n"
+            "try:\n"
+            "    import missing_library as EIGHT\n"
+            "except ImportError:\n"
+            "    EIGHT = None\n"
+            "with open(json.__file__) as NINE:\n"
+            "    TEN = 10\n"
+            "for ELEVEN in ():\n"
+            "    pass\n"
+        ),
+        COMPONENT / "user.py": (
+            "from .const import (\n"
+            "    json, os, Anything, Alias, ONE, TWO, REST, THREE, FOUR, FIVE, function,\n"
+            "    coroutine, Class, SIX, SEVEN, EIGHT, NINE, TEN, ELEVEN,\n"
+            ")\n"
+            "from .const import TWELVE\n"
+        ),
+    }
+    assert _unresolved_imports(files) == [f"{COMPONENT / 'user.py'}:5: .const has no TWELVE"]
+
+
+def test_the_import_check_follows_packages_and_their_submodules() -> None:
+    files = {
+        COMPONENT / "__init__.py": "from . import const\nfrom .const import DOMAIN\nNAME = 1\n",
+        COMPONENT / "const.py": "DOMAIN = 'baby_tracker'\n",
+        TESTS / "__init__.py": "NOW = 1\n",
+        TESTS / "helpers.py": "from . import NOW\n",
+        TESTS / "test_x.py": (
+            "from . import NOW, helpers\n"
+            "from .helpers import NOW as THEN\n"
+            "from homeassistant.components.baby_tracker import NAME, const\n"
+            "from homeassistant.components import baby_tracker\n"
+            "from homeassistant.const import Platform\n"
+            "import homeassistant.components.baby_tracker.const\n"
+            "def test() -> None:\n"
+            "    from homeassistant.components.baby_tracker.const import DOMAIN\n"
+            "from . import later\n"
+        ),
+    }
+    assert _unresolved_imports(files) == [f"{TESTS / 'test_x.py'}:9: . has no later"]
+
+
+def test_the_import_check_looks_inside_functions() -> None:
+    files = {
+        COMPONENT / "__init__.py": "def setup() -> None:\n    from .const import GONE\n",
+        COMPONENT / "const.py": "",
+    }
+    assert _unresolved_imports(files) == [f"{COMPONENT / '__init__.py'}:2: .const has no GONE"]
+
+
+def _removed_fields(files: dict[Path, str]) -> set[str]:
+    """The field names the repository's actions take that the cut's actions don't."""
+
+    def fields(text: str) -> set[str]:
+        return {
+            item.value.value
+            for node in ast.parse(text).body
+            if isinstance(node, ast.ClassDef) and node.name == "BabyTrackerServiceArgument"
+            for item in node.body
+            if isinstance(item, ast.Assign)
+            and isinstance(item.value, ast.Constant)
+            and isinstance(item.value.value, str)
+        }
+
+    repository = fields((INTEGRATION / "services.py").read_text())
+    return repository - fields(files.get(COMPONENT / "services.py", ""))
+
+
+# The methods of ``hass.services`` whose arguments are a domain and an action.
+_NAMES_AN_ACTION = {
+    "call",
+    "has_service",
+    "async_remove",
+    "remove",
+    "supports_response",
+    "async_register",
+    "register",
+}
+
+
+def _action_call(node: ast.AST) -> tuple[ast.expr | None, list[ast.expr]] | None:
+    """The action and data of a call that names one of the integration's actions, else None.
+
+    That's ``async_call`` (or ``call``) for the integration's domain, or another method of
+    ``hass.services`` that takes a domain and an action (``has_service``, ``async_remove``, and
+    so on).
+    """
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+        return None
+    registry = isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "services"
+    if node.func.attr != "async_call" and not (registry and node.func.attr in _NAMES_AN_ACTION):
+        return None
+    keywords = {k.arg: k.value for k in node.keywords if k.arg}
+    domain = node.args[0] if node.args else keywords.get("domain")
+    ours = (isinstance(domain, ast.Name) and domain.id == "DOMAIN") or (
+        isinstance(domain, ast.Constant) and domain.value == "baby_tracker"
+    )
+    if not ours:
+        return None
+    action = node.args[1] if len(node.args) > 1 else keywords.get("service")
+    data = node.args[2] if len(node.args) > 2 else keywords.get("service_data")
+    return action, [] if data is None else [data]
+
+
+def _test_functions(
+    files: dict[Path, str],
+) -> dict[Path, list[ast.FunctionDef | ast.AsyncFunctionDef]]:
+    return {
+        path: [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
+        for path, tree in _python(files).items()
+        if path.is_relative_to(TESTS)
+    }
+
+
+def _action_helpers(
+    functions: dict[Path, list[ast.FunctionDef | ast.AsyncFunctionDef]],
+) -> dict[str, list[str]]:
+    """The tests' helpers that call one of the actions, with their parameters in order."""
+    return {
+        function.name: [
+            arg.arg
+            for arg in (*function.args.posonlyargs, *function.args.args, *function.args.kwonlyargs)
+        ]
+        for found in functions.values()
+        for function in found
+        if any(_action_call(node) is not None for node in ast.walk(function))
+    }
+
+
+def _module_bindings(files: dict[Path, str]) -> dict[str, list[tuple[Path, ast.AST]]]:
+    """What each top-level name of the tests is built from: its assignments, and the
+    ``NAME[key] = ...`` and ``NAME.append(...)`` statements that fill it in."""
+    bindings: dict[str, list[tuple[Path, ast.AST]]] = {}
+    for path, tree in _python(files).items():
+        if not path.is_relative_to(TESTS):
+            continue
+        for node in tree.body:
+            targets: list[ast.expr] = []
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign | ast.AugAssign):
+                targets = [node.target]
+            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                func = node.value.func
+                if isinstance(func, ast.Attribute):
+                    targets = [func.value]
+            for target in targets:
+                while isinstance(target, ast.Subscript | ast.Attribute):
+                    target = target.value
+                for name in _bound(target):
+                    bindings.setdefault(name, []).append((path, node))
+    return bindings
+
+
+def _parametrized_names(decorator: ast.expr) -> set[str]:
+    """The argument names of a ``pytest.mark.parametrize`` decorator, else none."""
+    if not (
+        isinstance(decorator, ast.Call)
+        and ast.unparse(decorator.func) == "pytest.mark.parametrize"
+        and decorator.args
+    ):
+        return set()
+    names = decorator.args[0]
+    if isinstance(names, ast.Constant) and isinstance(names.value, str):
+        return {name.strip() for name in names.value.split(",")}
+    if isinstance(names, ast.Tuple | ast.List):
+        return {n.value for n in names.elts if isinstance(n, ast.Constant)}
+    return set()
+
+
+def _actions_called(files: dict[Path, str]) -> list[str]:
+    """Where a test of the cut calls an action the cut's services.yaml doesn't have.
+
+    An action is called by name in ``async_call`` for the integration's domain, or as the
+    ``action`` argument of a test helper that makes such a call. Only the repository's own
+    actions count, so a test that an action doesn't exist isn't one. A name the call reads is
+    followed to what it's built from: the function's own assignments, the values of its
+    ``parametrize`` argument, and the tests' top-level tables. There, any string that names
+    one of the repository's actions counts, unless it's only compared against.
+    """
+    services = yaml.safe_load(files.get(COMPONENT / "services.yaml", "")) or {}
+    known = set(yaml.safe_load((INTEGRATION / "services.yaml").read_text()))
+    functions = _test_functions(files)
+    helpers = _action_helpers(functions)
+    bindings = _module_bindings(files)
+    callers = set(helpers)
+    while True:
+        more = {
+            function.name
+            for found_in in functions.values()
+            for function in found_in
+            if any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in callers
+                for node in ast.walk(function)
+            )
+        } - callers
+        if not more:
+            break
+        callers |= more
+    found: set[tuple[str, int, str]] = set()
+
+    def constants(node: ast.AST, path: Path, seen: set[str]) -> None:
+        compared = {
+            id(inner)
+            for compare in ast.walk(node)
+            if isinstance(compare, ast.Compare)
+            for inner in ast.walk(compare)
+        }
+        for inner in ast.walk(node):
+            if id(inner) in compared:
+                continue
+            if (
+                isinstance(inner, ast.Constant)
+                and inner.value in known
+                and inner.value not in services
+            ):
+                found.add((str(path), inner.lineno, inner.value))
+            elif isinstance(inner, ast.Name) and inner.id in bindings and inner.id not in seen:
+                seen.add(inner.id)
+                for where, binding in bindings[inner.id]:
+                    constants(binding, where, seen)
+
+    for path, found_in in functions.items():
+        for function in found_in:
+            sent: list[ast.expr] = []
+            for node in ast.walk(function):
+                if (called := _action_call(node)) is not None:
+                    sent.extend(e for e in (called[0], *called[1]) if e is not None)
+                elif (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in callers
+                ):
+                    sent.extend(node.args)
+                    sent.extend(k.value for k in node.keywords)
+            read = {n.id for e in sent for n in ast.walk(e) if isinstance(n, ast.Name)}
+            while True:
+                more = {
+                    n.id
+                    for node in ast.walk(function)
+                    if isinstance(node, ast.Assign) and any(_bound(t) & read for t in node.targets)
+                    for n in ast.walk(node.value)
+                    if isinstance(n, ast.Name)
+                } - read
+                if not more:
+                    break
+                read |= more
+            for decorator in function.decorator_list:
+                if _parametrized_names(decorator) & read:
+                    constants(decorator.args[1], path, set())
+            for name in read & set(bindings):
+                for where, binding in bindings[name]:
+                    constants(binding, where, {name})
+            for node in ast.walk(function):
+                action: ast.expr | None = None
+                if (called := _action_call(node)) is not None:
+                    action = called[0]
+                elif (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and "action" in helpers.get(node.func.id, [])
+                ):
+                    index = helpers[node.func.id].index("action")
+                    keywords = {k.arg: k.value for k in node.keywords}
+                    action = node.args[index] if len(node.args) > index else keywords.get("action")
+                if (
+                    isinstance(action, ast.Constant)
+                    and action.value in known
+                    and action.value not in services
+                ):
+                    found.add((str(path), action.lineno, action.value))
+    return [f"{path}:{line}: {action}" for path, line, action in sorted(found)]
+
+
+def _fields_sent(files: dict[Path, str], removed: set[str]) -> list[str]:
+    """Where a test of the cut sends one of the ``removed`` fields to one of the actions.
+
+    A field is sent when it's a key of a dict passed to ``async_call`` for the integration's
+    domain, or to a test helper that makes such a call, or a keyword argument of such a helper
+    (other than one of its own parameters). A dict assigned to a name the call's data reads, and
+    the values of a ``parametrize`` argument it reads, count too.
+    """
+    functions = _test_functions(files)
+    helpers = _action_helpers(functions)
+    found: set[tuple[str, int, str]] = set()
+
+    def keys(node: ast.AST, path: Path) -> None:
+        for inner in ast.walk(node):
+            if isinstance(inner, ast.Dict):
+                for key in inner.keys:
+                    if isinstance(key, ast.Constant) and key.value in removed:
+                        found.add((str(path), key.lineno, key.value))
+
+    for path, found_in in functions.items():
+        for function in found_in:
+            sent: list[ast.expr] = []
+            for node in ast.walk(function):
+                if (called := _action_call(node)) is not None:
+                    sent.extend(called[1])
+                elif (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in helpers
+                ):
+                    sent.extend(node.args)
+                    for keyword in node.keywords:
+                        if keyword.arg is None:
+                            sent.append(keyword.value)
+                        elif keyword.arg in removed and keyword.arg not in helpers[node.func.id]:
+                            found.add((str(path), keyword.lineno, keyword.arg))
+            read = {n.id for data in sent for n in ast.walk(data) if isinstance(n, ast.Name)}
+            for data in sent:
+                keys(data, path)
+            for node in ast.walk(function):
+                if isinstance(node, ast.Assign) and any(_bound(t) & read for t in node.targets):
+                    keys(node.value, path)
+            for decorator in function.decorator_list:
+                if (
+                    isinstance(decorator, ast.Call)
+                    and ast.unparse(decorator.func) == "pytest.mark.parametrize"
+                    and isinstance(decorator.args[0], ast.Constant)
+                    and {n.strip() for n in str(decorator.args[0].value).split(",")} & read
+                ):
+                    for value in ast.walk(decorator.args[1]):
+                        if isinstance(value, ast.Constant) and value.value in removed:
+                            found.add((str(path), value.lineno, value.value))
+    return [f"{path}:{line}: {field}" for path, line, field in sorted(found)]
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_sends_only_fields_its_actions_take(
+    planned: Callable[[int], dict[Path, str]], number: int
+) -> None:
+    # A test kept in core that still sends a HACS-only field (the deprecated ``baby`` or
+    # ``device``) fails in core with "extra keys not allowed".
+    files = planned(number)
+    removed = _removed_fields(files)
+    assert {"baby", "device"} <= removed
+    assert _fields_sent(files, removed) == []
+
+
+def test_the_removed_fields_are_the_hacs_only_ones_and_those_of_later_prs(
+    core_cut: ModuleType,
+) -> None:
+    assert _removed_fields(core_cut.planned_files(LAST_PR)) == {"baby", "device"}
+    assert _removed_fields(core_cut.planned_files(9)) >= {"baby", "device", "medicine"}
+    assert "device_id" not in _removed_fields(core_cut.planned_files(9))
+
+
+def test_the_field_check_finds_each_way_a_test_sends_a_field() -> None:
+    helpers = (
+        "from homeassistant.components.baby_tracker.const import DOMAIN\n"
+        "async def log_pump(hass, **data):\n"
+        "    await hass.services.async_call(DOMAIN, 'log_pump', data, blocking=True)\n"
+        "async def call(hass, action, baby='one', **data):\n"
+        "    await hass.services.async_call(DOMAIN, action, data, blocking=True)\n"
+    )
+    test = (
+        "import pytest\n"
+        "from .helpers import call, log_pump\n"
+        "async def test_a(hass):\n"
+        "    await log_pump(hass, device='x')\n"
+        "    await hass.services.async_call(DOMAIN, 'undo', {'baby': 'x'})\n"
+        "    await hass.services.async_call(domain=DOMAIN, service='u', service_data={'baby': 1})\n"
+        "    await hass.services.async_call('baby_tracker', 'undo', {'device': 'x'})\n"
+        "async def _call(hass, action, data):\n"
+        "    await hass.services.async_call(DOMAIN, action, data, blocking=True)\n"
+        "async def test_b(hass):\n"
+        "    values = {'config_entry_id': 'e', 'device': 'd'}\n"
+        "    await _call(hass, 'log_pump', {**{k: values[k] for k in values}, 'left_amount': 3})\n"
+        "@pytest.mark.parametrize('field', ['config_entry_id', 'baby'])\n"
+        "async def test_c(hass, field):\n"
+        "    await _call(hass, 'log_pump', {field: 'x'})\n"
+    )
+    files = {TESTS / "helpers.py": helpers, TESTS / "test_x.py": test}
+    found = _fields_sent(files, {"baby", "device"})
+    assert found == [
+        f"{TESTS / 'test_x.py'}:4: device",
+        f"{TESTS / 'test_x.py'}:5: baby",
+        f"{TESTS / 'test_x.py'}:6: baby",
+        f"{TESTS / 'test_x.py'}:7: device",
+        f"{TESTS / 'test_x.py'}:11: device",
+        f"{TESTS / 'test_x.py'}:13: baby",
+    ]
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_calls_only_actions_it_has(
+    planned: Callable[[int], dict[Path, str]], number: int
+) -> None:
+    # A test that calls an action planned for a later PR fails in core with "action not found".
+    assert _actions_called(planned(number)) == []
+
+
+def test_the_action_check_finds_each_way_a_test_calls_an_action() -> None:
+    helpers = (
+        "from homeassistant.components.baby_tracker.const import DOMAIN\n"
+        "async def call(hass, action, baby='one', **data):\n"
+        "    await hass.services.async_call(DOMAIN, action, data, blocking=True)\n"
+        "async def undo(hass, **data):\n"
+        "    await hass.services.async_call(DOMAIN, 'undo', data, blocking=True)\n"
+    )
+    test = (
+        "from .helpers import call\n"
+        "async def test_a(hass, action):\n"
+        "    await hass.services.async_call(DOMAIN, 'log_diaper', {})\n"
+        "    await hass.services.async_call(DOMAIN, 'log_bottle', {})\n"
+        "    await hass.services.async_call(domain='baby_tracker', service='log_sleep')\n"
+        "    await call(hass, 'log_nursing')\n"
+        "    await call(hass, action='log_pump')\n"
+        "    await call(hass, 'log_diaper', 'two')\n"
+        "    await call(hass, action)\n"
+        "    await hass.services.async_call('switch', 'turn_on', {})\n"
+    )
+    files = {
+        COMPONENT / "services.yaml": "log_diaper:\n  fields: {}\n",
+        TESTS / "helpers.py": helpers,
+        TESTS / "test_x.py": test,
+    }
+    assert _actions_called(files) == [
+        f"{TESTS / 'helpers.py'}:5: undo",
+        f"{TESTS / 'test_x.py'}:4: log_bottle",
+        f"{TESTS / 'test_x.py'}:5: log_sleep",
+        f"{TESTS / 'test_x.py'}:6: log_nursing",
+        f"{TESTS / 'test_x.py'}:7: log_pump",
+    ]
+
+
+def test_the_action_check_follows_parametrize_and_tables_to_the_action() -> None:
+    helpers = (
+        "from homeassistant.components.baby_tracker.const import DOMAIN\n"
+        "async def call(hass, action, baby='one', **data):\n"
+        "    await hass.services.async_call(DOMAIN, action, data, blocking=True)\n"
+    )
+    test = (
+        "import pytest\n"
+        "from .helpers import call\n"
+        "VALID = {}\n"
+        "VALID['log_diaper'] = {}\n"
+        "VALID['log_bottle'] = {}\n"
+        "ACTIONS = list(VALID)\n"
+        "LIMITS = {'too long': ('log_pump', {}, 'minutes_too_long')}\n"
+        "async def run_valid(hass, name):\n"
+        "    await call(hass, name, **VALID[name])\n"
+        "@pytest.mark.parametrize('name', ACTIONS)\n"
+        "async def test_a(hass, name):\n"
+        "    await run_valid(hass, name)\n"
+        "@pytest.mark.parametrize('case', list(LIMITS))\n"
+        "async def test_b(hass, case):\n"
+        "    action, data, key = LIMITS[case]\n"
+        "    await call(hass, action, **data)\n"
+        "@pytest.mark.parametrize(('action', 'n'), [('log_sleep', 1), ('log_diaper', 2)])\n"
+        "async def test_c(hass, action, n):\n"
+        "    await call(hass, action)\n"
+        "@pytest.mark.parametrize('name', [n for n in ('log_diaper',) if n != 'undo'])\n"
+        "async def test_d(hass, name):\n"
+        "    await call(hass, name)\n"
+        "@pytest.mark.parametrize('kind', ['wet', 'dirty'])\n"
+        "async def test_e(hass, kind):\n"
+        "    await call(hass, 'log_diaper', type=kind)\n"
+    )
+    files = {
+        COMPONENT / "services.yaml": "log_diaper:\n  fields: {}\n",
+        TESTS / "helpers.py": helpers,
+        TESTS / "test_x.py": test,
+    }
+    assert _actions_called(files) == [
+        f"{TESTS / 'test_x.py'}:5: log_bottle",
+        f"{TESTS / 'test_x.py'}:7: log_pump",
+        f"{TESTS / 'test_x.py'}:17: log_sleep",
+    ]
+
+
+def _registered_actions(files: dict[Path, str]) -> set[str]:
+    """The actions the cut's services.py registers, by name."""
+    if COMPONENT / "services.py" not in files:
+        return set()
+    names = {
+        item.targets[0].id: item.value.value
+        for node in ast.parse(files[COMPONENT / "const.py"]).body
+        if isinstance(node, ast.ClassDef) and node.name == "BabyTrackerService"
+        for item in node.body
+        if isinstance(item, ast.Assign)
+        and isinstance(item.targets[0], ast.Name)
+        and isinstance(item.value, ast.Constant)
+    }
+    return {
+        names[node.args[1].attr]
+        for node in ast.walk(ast.parse(files[COMPONENT / "services.py"]))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "async_register"
+        and isinstance(node.args[1], ast.Attribute)
+    }
+
+
+@pytest.mark.parametrize("number", range(1, LAST_PR + 1))
+def test_every_planned_cut_registers_the_actions_it_describes(
+    planned: Callable[[int], dict[Path, str]], number: int
+) -> None:
+    # Core rejects an action with no services.yaml entry or strings, and a described action
+    # that isn't registered is a broken promise.
+    files = planned(number)
+    described = set(yaml.safe_load(files.get(COMPONENT / "services.yaml", "")) or {})
+    strings = json.loads(files[COMPONENT / "strings.json"]).get("services", {})
+    icons = json.loads(files.get(COMPONENT / "icons.json", "{}")).get("services", {})
+    assert _registered_actions(files) == described
+    assert set(strings) == described
+    assert set(icons) == described
+
+
+def test_the_registration_check_reads_the_registered_names() -> None:
+    files = {
+        COMPONENT / "const.py": (
+            "class BabyTrackerService(StrEnum):\n"
+            "    LOG_DIAPER = 'log_diaper'\n"
+            "    LOG_BOTTLE = 'log_bottle'\n"
+        ),
+        COMPONENT / "services.py": (
+            "def async_setup_services(hass):\n"
+            "    hass.services.async_register(DOMAIN, BabyTrackerService.LOG_DIAPER, f)\n"
+            "    hass.services.async_register(\n"
+            "        DOMAIN, BabyTrackerService.LOG_BOTTLE, g, schema=S\n"
+            "    )\n"
+        ),
+    }
+    assert _registered_actions(files) == {"log_diaper", "log_bottle"}
+    assert _registered_actions({}) == set()
+
+
+def test_the_action_check_reads_every_service_registry_call_that_names_an_action() -> None:
+    test = (
+        "async def test_a(hass):\n"
+        "    assert hass.services.has_service(DOMAIN, 'log_diaper')\n"
+        "    assert hass.services.has_service(DOMAIN, 'undo')\n"
+        "    hass.services.async_remove(DOMAIN, 'log_pump')\n"
+        "    assert hass.services.supports_response(domain=DOMAIN, service='log_sleep')\n"
+        "    assert not hass.services.has_service('switch', 'undo')\n"
+        "    assert other.has_service(DOMAIN, 'undo')\n"
+        "    assert not hass.services.has_service(DOMAIN, 'log_milestone')\n"
+    )
+    files = {
+        COMPONENT / "services.yaml": "log_diaper:\n  fields: {}\n",
+        TESTS / "test_x.py": test,
+    }
+    assert _actions_called(files) == [
+        f"{TESTS / 'test_x.py'}:3: undo",
+        f"{TESTS / 'test_x.py'}:4: log_pump",
+        f"{TESTS / 'test_x.py'}:5: log_sleep",
+    ]
+
+
+def test_a_cut_with_no_services_yaml_has_no_actions() -> None:
+    test = "async def test_a(hass):\n    await hass.services.async_call(DOMAIN, 'log_diaper')\n"
+    assert _actions_called({TESTS / "test_x.py": test}) == [f"{TESTS / 'test_x.py'}:2: log_diaper"]
+
+
+def test_the_field_check_ignores_the_same_words_where_no_action_gets_them() -> None:
+    test = (
+        "from homeassistant.components.baby_tracker.const import DOMAIN\n"
+        "async def call(hass, action, baby='one', **data):\n"
+        "    await hass.services.async_call(DOMAIN, action, data, blocking=True)\n"
+        "async def test_a(hass, server):\n"
+        "    server.add_record(baby='one')\n"
+        "    await hass.services.async_call('switch', 'turn_on', {'device': 'x'})\n"
+        "    await call(hass, 'log_diaper', baby='one')\n"
+        "    assert issue.translation_placeholders == {'baby': 'Homer'}\n"
+        "    assert 'baby' not in payload\n"
+        "    await call(hass, 'log_pump', device='x')\n"
+    )
+    found = _fields_sent({TESTS / "test_x.py": test}, {"baby", "device"})
+    assert found == [f"{TESTS / 'test_x.py'}:10: device"]
 
 
 def test_a_cut_formatted_with_ruff_is_still_idempotent(core_cut: ModuleType, core: Path) -> None:
